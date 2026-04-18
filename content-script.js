@@ -27,9 +27,9 @@ function getDate() {
 
 function showToast(message, color, duration = 3000) {
     if (!document.getElementById('toast-style')) {
-      const style = document.createElement('style');
-      style.id = 'toast-style';
-      style.textContent = `
+        const style = document.createElement('style');
+        style.id = 'toast-style';
+        style.textContent = `
       .toast {
         position: fixed;
         top: 24px;
@@ -53,21 +53,21 @@ function showToast(message, color, duration = 3000) {
         transform: translateY(0);
       }
     `;
-      document.head.appendChild(style);
+        document.head.appendChild(style);
     }
-  
+
     const toast = document.createElement('div');
     toast.className = 'toast';
     toast.textContent = message;
     toast.style.backgroundColor = color;
     document.body.appendChild(toast);
-  
+
     void toast.offsetHeight;
     toast.classList.add('show');
-  
+
     setTimeout(() => {
-      toast.classList.remove('show');
-      setTimeout(() => toast.remove(), 300);
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
     }, duration);
 }
 
@@ -119,10 +119,33 @@ function getLanguage(language) {
     return "py";
 }
 
-async function addContentToGitHub(code, questionTitle, questionContent, language) {
+async function addContentToGitHub(code, questionTitle, questionContent, language) {    
+    const category = getCategory();
     const title = questionTitle.replaceAll(' ', '-').toLowerCase().trim();
-    const solutionAdded = await addToGithub(code, title, "solution", getLanguage(language));
-    const problemAdded = await addToGithub(questionContent, title, "problem", "md");
+
+    let solutionAdded = { status: 200 }; // default success
+    if (code && code.trim() !== "") {
+        solutionAdded = await addToGithub(code, title, "solution", getLanguage(language));
+    }
+
+    const date = getDate();
+    const enrichedMarkdown = `# ${questionTitle}
+
+    ## Category
+    ${category}
+
+    ## Date
+    ${date}
+
+    ## Notes
+    <!-- Add your thoughts, edge cases, mistakes -->
+
+    ---
+
+    ${questionContent}
+    `;
+
+    const problemAdded = await addToGithub(enrichedMarkdown, title, "problem", "md");
 
     if (solutionAdded.status !== 201 && solutionAdded.status !== 200) {
         return solutionAdded;
@@ -135,10 +158,15 @@ async function addContentToGitHub(code, questionTitle, questionContent, language
     return problemAdded;
 }
 
-async function addToGithub(content, title, contentType, fileType) {
+async function addToGithub(content, title, contentType, fileType, category) {
     try {
         const date = getDate();
-        const pathName = `${date}/${title}/${contentType}.${fileType}`;
+        // const pathName = `${date}/${title}/${contentType}.${fileType}`;
+        const category = getCategory();
+        const pathName = `${category}/${title}/${contentType}.${fileType}`;
+
+        console.log("Step 2: sending to background / GitHub:", pathName);
+
         const dataToAdd = {
             owner: config.github.username,
             repo: config.github.repo_name,
@@ -158,7 +186,7 @@ async function addToGithub(content, title, contentType, fileType) {
                 'Authorization': `Bearer ${config.github.token}`,
                 'X-GitHub-Api-Version': '2022-11-28'
             }
-        }   
+        }
         const existingFile = await findExistingFile(dataToFind, pathName);
         if (existingFile.status === 200) {
             dataToAdd.sha = existingFile.response.sha;
@@ -186,25 +214,25 @@ async function addToGithub(content, title, contentType, fileType) {
 
 function formatArticleComponent(title, articleComponent) {
     if (!articleComponent) return '';
-    
+
     let markdown = `# **${title}**\n\n`;
-    
+
     function processNode(node) {
         if (node.nodeType === Node.TEXT_NODE) {
             return node.textContent.trim();
         }
-        
+
         if (node.nodeType === Node.ELEMENT_NODE) {
             const tagName = node.tagName.toLowerCase();
             const textContent = node.textContent.trim();
-            
+
             switch (tagName) {
                 case 'p':
                     if (textContent) {
                         return textContent + '\n\n';
                     }
                     break;
-                    
+
                 case 'div':
                     if (node.classList.contains('code-toolbar')) {
                         const codeElement = node.querySelector('code');
@@ -217,7 +245,7 @@ function formatArticleComponent(title, articleComponent) {
                         divContent += processNode(child);
                     }
                     return divContent;
-                    
+
                 case 'ul':
                     let ulContent = '';
                     const listItems = node.querySelectorAll('li');
@@ -225,7 +253,7 @@ function formatArticleComponent(title, articleComponent) {
                         ulContent += '- ' + li.textContent.trim() + '\n';
                     }
                     return ulContent + '\n';
-                    
+
                 case 'ol':
                     let olContent = '';
                     const orderedItems = node.querySelectorAll('li');
@@ -233,38 +261,38 @@ function formatArticleComponent(title, articleComponent) {
                         olContent += (i + 1) + '. ' + orderedItems[i].textContent.trim() + '\n';
                     }
                     return olContent + '\n';
-                    
+
                 case 'details':
                     if (node.classList.contains('hint-accordion')) {
                         const summary = node.querySelector('summary');
                         const content = node.querySelector('div') || node.querySelector('p');
                         if (summary && content) {
-                            return '### ' + summary.textContent.trim() + '\n\n' + 
-                                   content.textContent.trim() + '\n\n';
+                            return '### ' + summary.textContent.trim() + '\n\n' +
+                                content.textContent.trim() + '\n\n';
                         }
                     }
                     break;
-                    
+
                 case 'br':
                     return '\n';
-                    
+
                 case 'strong':
                 case 'b':
                     return '**' + textContent + '**';
-                    
+
                 case 'em':
                 case 'i':
                     return '*' + textContent + '*';
-                    
+
                 case 'code':
                     if (node.parentElement && node.parentElement.classList.contains('code-toolbar')) {
                         return '```\n' + textContent + '\n```\n\n';
                     }
                     return '`' + textContent + '`';
-                    
+
                 case 'pre':
                     return '```\n' + textContent + '\n```\n\n';
-                    
+
                 case 'h1':
                 case 'h2':
                 case 'h3':
@@ -274,7 +302,7 @@ function formatArticleComponent(title, articleComponent) {
                     const level = parseInt(tagName.charAt(1));
                     const prefix = '#'.repeat(level);
                     return prefix + ' ' + textContent + '\n\n';
-                    
+
                 default:
                     let content = '';
                     for (const child of node.childNodes) {
@@ -283,35 +311,116 @@ function formatArticleComponent(title, articleComponent) {
                     return content;
             }
         }
-        
+
         return '';
     }
-    
+
     for (const child of articleComponent.childNodes) {
         markdown += processNode(child);
     }
-    
+
     return markdown.trim();
 }
 
-chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
-    if (message.type === 'CODE_DATA' && message.code && message.title) {
-        try {
-            const questionTitle = await waitForElement('querySelector', 'h1');
-            const articleComponent = await waitForElement('querySelector', 'div.my-article-component-container');
-            const markdownContent = formatArticleComponent(questionTitle.textContent, articleComponent);
-            const languageElement = await waitForElement('querySelector', '.selected-language');
+function getCategory() {
+    const text = document.body.innerText.toLowerCase();
 
-            const title = questionTitle.textContent.replaceAll(' ', '-').toLowerCase().trim();
-            const conentAdded = await addContentToGitHub(message.code, title, markdownContent, languageElement.textContent);
-            if (conentAdded.status === 201 || conentAdded.status === 200) {
-                const message = conentAdded.updated ? 'Successfully updated in GitHub' : 'Successfully added to GitHub';
-                showToast(message, '#007bff');
+    if (text.includes("system design")) {
+        return "System Design";
+    }
+
+    return "Data Structures & Algorithms";
+}
+
+// Central function that handles:
+// - extracting problem data
+// - formatting markdown
+// - uploading to GitHub
+// - showing toast messages
+async function processAndUpload(code, source = 'auto') {
+    try {
+        console.log("Step 1: preparing data");
+        // Wait for required DOM elements
+        const questionTitle = await waitForElement('querySelector', 'h1');
+        const articleComponent = await waitForElement('querySelector', 'div.my-article-component-container');
+        // Convert problem description into markdown
+        const markdownContent = formatArticleComponent(questionTitle.textContent, articleComponent);
+        const languageElement = await waitForElement('querySelector', '.selected-language');
+
+        // Extract and normalize title for file path
+        const title = questionTitle.textContent.replaceAll(' ', '-').toLowerCase().trim();
+        // If no code provided, warn but continue
+        if (!code) {
+            showToast('No code found — saving problem only', '#f39c12');
+        }
+        console.log("Generated content:", code);
+
+        // Upload everything to GitHub
+        const conentAdded = await addContentToGitHub(code, title, markdownContent, languageElement.textContent);
+        // Handle success response
+        if (conentAdded.status === 201 || conentAdded.status === 200) {
+            let message;
+
+            if (source === 'manual') {
+                message = conentAdded.updated ? 'Updated via click' : 'Saved via click';
             } else {
-                showToast('Failed to add to GitHub', '#e74c3c');
+                message = conentAdded.updated
+                    ? 'Successfully updated in GitHub'
+                    : 'Successfully added to GitHub';
             }
-        } catch (error) {
+
+            showToast(message, '#007bff');
+        } else {
             showToast('Failed to add to GitHub', '#e74c3c');
         }
+
+    } catch (error) {
+        console.error('processAndUpload error:', error);
+
+        const failMessage =
+            source === 'manual'
+                ? 'Manual save failed'
+                : 'Failed to add to GitHub';
+
+        showToast(failMessage, '#e74c3c');
+    }
+}
+
+function getCode() {
+    // Try hidden textarea first
+    const textarea = document.querySelector('.inputarea');
+    if (textarea && textarea.value) return textarea.value;
+
+    // Fallback to DOM lines
+    const lines = document.querySelectorAll('.view-lines .view-line');
+
+    if (!lines.length) return null;
+
+    return Array.from(lines)
+        .map(line => line.innerText)
+        .join('\n');
+}
+
+
+// Listener becomes very thin and clean
+chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+    console.log("Received message:", message);
+
+    // Case 1: Code comes from extension (auto capture)
+    if (message.type === 'CODE_DATA' && message.code && message.title) {
+        await processAndUpload(message.code, 'auto');
+    }
+
+    // Case 2: Manual trigger (pull from Monaco editor)
+    else if (message.type === 'MANUAL_TRIGGER') {
+        // let code = window.monaco?.editor?.getModels()[0]?.getValue();
+        let code = getCode();
+        if (!code) {
+            console.log("No code found in DOM");
+            code = ""; // explicit fallback
+        }
+        console.log("Manual trigger fired");
+        // console.log("Extracted code:", code);
+        await processAndUpload(code, 'manual');
     }
 });
