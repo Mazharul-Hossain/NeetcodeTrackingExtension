@@ -1,4 +1,5 @@
 async function waitForElement(getElement, identifier) {
+    console.log("Waiting for:", identifier);
     const targetElement = document[getElement](identifier);
     if (targetElement) {
         return targetElement;
@@ -74,12 +75,28 @@ function showToast(message, color, duration = 3000) {
 
 async function findExistingFile(dataToFind, pathName) {
     const response = await fetch(
-        `https://api.github.com/repos/${config.github.username}/${config.github.repo_name}/contents/${pathName}`, dataToFind
+        `https://api.github.com/repos/${config.github.username}/${config.github.repo_name}/contents/${pathName}`,
+        dataToFind
     );
+
+    // 404 = file does NOT exist (normal case)
+    if (response.status === 404) {
+        return {
+            response: null,
+            status: 404
+        };
+    }
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`GitHub GET failed: ${response.status} ${text}`);
+    }
+
     const data = await response.json();
+
     return {
-        "response": data,
-        "status": response.status
+        response: data,
+        status: response.status
     };
 }
 
@@ -119,7 +136,18 @@ function getLanguage(language) {
     return "py";
 }
 
-async function addContentToGitHub(code, questionTitle, questionContent, language) {    
+async function waitForTopics() {
+    const container = await waitForElement(
+        'querySelector',
+        '.company-tags-container'
+    );
+
+    return Array.from(
+        container.querySelectorAll('.company-tag-reveal-btn')
+    ).map(el => el.textContent.trim());
+}
+
+async function addContentToGitHub(code, questionTitle, questionContent, language) {
     const category = getCategory();
     const title = questionTitle.replaceAll(' ', '-').toLowerCase().trim();
 
@@ -129,20 +157,23 @@ async function addContentToGitHub(code, questionTitle, questionContent, language
     }
 
     const date = getDate();
-    const enrichedMarkdown = `# ${questionTitle}
+    const topics = await waitForTopics();
+    const enrichedMarkdown = `
+---
+tags:
+${topics.map(t => ` - ${t.replaceAll(' ', '-')}`).join('\n')}
 
-    ## Category
-    ${category}
+created: ${date}
 
-    ## Date
-    ${date}
+---
 
-    ## Notes
-    <!-- Add your thoughts, edge cases, mistakes -->
+## Notes
 
-    ---
+<!-- Add your thoughts, edge cases, mistakes -->
 
-    ${questionContent}
+---
+
+${questionContent}
     `;
 
     const problemAdded = await addToGithub(enrichedMarkdown, title, "problem", "md");
@@ -158,7 +189,7 @@ async function addContentToGitHub(code, questionTitle, questionContent, language
     return problemAdded;
 }
 
-async function addToGithub(content, title, contentType, fileType, category) {
+async function addToGithub(content, title, contentType, fileType) {
     try {
         const date = getDate();
         // const pathName = `${date}/${title}/${contentType}.${fileType}`;
@@ -191,6 +222,8 @@ async function addToGithub(content, title, contentType, fileType, category) {
         if (existingFile.status === 200) {
             dataToAdd.sha = existingFile.response.sha;
             const data = await uploadToGitHub(pathName, dataToAdd);
+            console.log("PUT status:", data.status);
+            console.log("PUT response:", data.response);
             return {
                 "response": data,
                 "status": data.status,
@@ -198,6 +231,8 @@ async function addToGithub(content, title, contentType, fileType, category) {
             }
         } else {
             const data = await uploadToGitHub(pathName, dataToAdd);
+            console.log("else PUT status:", data.status);
+            console.log("PUT response:", data.response);
             return {
                 "response": data,
                 "status": data.status,
@@ -219,7 +254,11 @@ function formatArticleComponent(title, articleComponent) {
 
     function processNode(node) {
         if (node.nodeType === Node.TEXT_NODE) {
-            return node.textContent.trim();
+            const text = node.textContent.trim();
+            // Skip empty or duplicate math fragments
+            if (!text) return '';
+
+            return text;
         }
 
         if (node.nodeType === Node.ELEMENT_NODE) {
@@ -227,11 +266,45 @@ function formatArticleComponent(title, articleComponent) {
             const textContent = node.textContent.trim();
 
             switch (tagName) {
-                case 'p':
-                    if (textContent) {
-                        return textContent + '\n\n';
+                case 'span':
+                    if (node.classList.contains('katex')) {
+                        const annotation = node.querySelector('annotation');
+                        if (annotation) {
+                            return ` $${annotation.textContent.trim()}$ `;
+                        }
+                        return '';
                     }
-                    break;
+
+                    // normal span fallback
+                    let spanContent = '';
+                    for (const child of node.childNodes) {
+                        spanContent += processNode(child);
+                    }
+                    return spanContent;
+
+                case 'p':
+                    let pContent = '';
+                    for (const child of node.childNodes) {
+                        const part = processNode(child).trim();
+
+                        if (!part) continue;
+
+                        // Add space if needed (avoid merging words)
+                        if (
+                            pContent &&
+                            !pContent.endsWith(' ') &&
+                            !part.startsWith('\n') &&
+                            !part.startsWith('.') &&
+                            !part.startsWith(',') &&
+                            !part.startsWith(')')
+                        ) {
+                            pContent += ' ';
+                        }
+
+                        pContent += part;
+                    }
+
+                    return pContent.trim() + '\n\n';
 
                 case 'div':
                     if (node.classList.contains('code-toolbar')) {
@@ -250,7 +323,13 @@ function formatArticleComponent(title, articleComponent) {
                     let ulContent = '';
                     const listItems = node.querySelectorAll('li');
                     for (const li of listItems) {
-                        ulContent += '- ' + li.textContent.trim() + '\n';
+                        const li_text = li.textContent.trim();
+                        // Detect math-like patterns
+                        if (/[\^<>=]/.test(li_text)) {
+                            ulContent += `- $${li_text}$\n`;
+                        } else {
+                            ulContent += `- ${li_text}\n`;
+                        }
                     }
                     return ulContent + '\n';
 
@@ -288,7 +367,7 @@ function formatArticleComponent(title, articleComponent) {
                     if (node.parentElement && node.parentElement.classList.contains('code-toolbar')) {
                         return '```\n' + textContent + '\n```\n\n';
                     }
-                    return '`' + textContent + '`';
+                    return '\`' + textContent + '\`';
 
                 case 'pre':
                     return '```\n' + textContent + '\n```\n\n';
@@ -342,7 +421,7 @@ async function processAndUpload(code, source = 'auto') {
         console.log("Step 1: preparing data");
         // Wait for required DOM elements
         const questionTitle = await waitForElement('querySelector', 'h1');
-        const articleComponent = await waitForElement('querySelector', 'div.my-article-component-container');
+        const articleComponent = await waitForElement('querySelector', 'main.my-article-component-container');
         // Convert problem description into markdown
         const markdownContent = formatArticleComponent(questionTitle.textContent, articleComponent);
         const languageElement = await waitForElement('querySelector', '.selected-language');
@@ -353,7 +432,7 @@ async function processAndUpload(code, source = 'auto') {
         if (!code) {
             showToast('No code found — saving problem only', '#f39c12');
         }
-        console.log("Generated content:", code);
+        console.log("Generated content:", markdownContent);
 
         // Upload everything to GitHub
         const conentAdded = await addContentToGitHub(code, title, markdownContent, languageElement.textContent);
