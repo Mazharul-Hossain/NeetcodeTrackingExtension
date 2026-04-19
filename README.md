@@ -10,6 +10,22 @@ A Chrome extension that automatically captures your NeetCode solutions and probl
 - **Organized Structure**: Creates a clean folder structure: `{date}/{problem-name}/`
 - **Multiple Languages**: Supports various programming languages (Python, Java, C++, JavaScript, etc.)
 
+## New V1.1.0 File Structure
+
+1. Supports the same file structure as the `Connect Neetcode to GitHub account` feature
+2. **Navigate to a NeetCode problem** (e.g., https://neetcode.io/problems/two-integer-sum?list=neetcode150/)
+3. Click on the **Extension Icon**
+4. **Extension automatically captures** your code (if any) and the problem description
+8. **Files are uploaded to GitHub** in the following structure:
+   ```
+   Data Structures & Algorithms/
+   └── two-sum/
+       ├── problem.md
+       ├── solution.py (or .js, .java, etc.)
+       ├── submission-0.py
+       └── ......
+   ```
+
 ## Installation
 
 ### 1. Clone or Download the Extension
@@ -118,7 +134,7 @@ The extension automatically detects and uses the correct file extension for:
 
 ### Files Not Uploading to GitHub?
 
-1. **Verify Token**: Check if your GitHub token is valid and has correct permissions
+1. **Verify Token**: Check if your GitHub token is valid and has the correct permissions
 2. **Repository Access**: Ensure the repository exists and you have write access
 3. **Network Issues**: Check if you can access GitHub from your browser
 
