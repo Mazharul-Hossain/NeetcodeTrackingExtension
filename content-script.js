@@ -158,8 +158,7 @@ async function addContentToGitHub(code, questionTitle, questionContent, language
 
     const date = getDate();
     const topics = await waitForTopics();
-    const enrichedMarkdown = `
----
+    const enrichedMarkdown = `---
 tags:
 ${topics.map(t => ` - ${t.replaceAll(' ', '-')}`).join('\n')}
 
