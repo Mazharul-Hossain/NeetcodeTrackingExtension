@@ -24,6 +24,9 @@ A Chrome extension that automatically captures your NeetCode solutions and probl
        ├── solution.py (or .js, .java, etc.)
        ├── submission-0.py
        └── ......
+ 9. **Submit your solution** (click "Submit"), does not support "Run" anymore
+10. **Extension automatically captures** your code and the problem description
+11. Only after NeetCode GitHub sync completes running, **Extension automatically uploads Files to GitHub**
    ```
 
 ## Installation

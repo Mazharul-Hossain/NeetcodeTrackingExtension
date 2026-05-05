@@ -1,33 +1,73 @@
-chrome.webRequest.onBeforeRequest.addListener((details) => {
-    if (details.url.includes("https://us-central1-neetcode-dd170.cloudfunctions.net/executeCodeFunction")) {
-        if (details.requestBody && details.requestBody.raw) {
-            const requestBody = details.requestBody;
-            const buffer = requestBody.raw[0].bytes;
-            // rest of the logic
-            const uint8Array = new Uint8Array(buffer);
-            const decoder = new TextDecoder('utf-8');
-            const decodedString = decoder.decode(uint8Array);
-            const data = JSON.parse(decodedString);
-            const title = data.data.problemId;
-            const code = data.data.rawCode;
+// GLOBAL (top of background.js)
+const pendingCodeByTab = {};
 
-            if (details.tabId >= 0) {
-                chrome.tabs.sendMessage(details.tabId, {
-                    type: 'CODE_DATA',
-                    title: title,
-                    code: code
-                }, () => {
-                    if (chrome.runtime.lastError) {
-                        // Ignore this instead of treating as fatal
-                        console.log("No receiver (safe to ignore):", chrome.runtime.lastError.message);
+chrome.webRequest.onBeforeRequest.addListener(
+    (details) => {
+        if (details.url.includes("executeCodeFunctionHttp")) {
+            if (details.requestBody && details.requestBody.raw) {
+                try {
+                    const buffer = details.requestBody.raw[0].bytes;
+
+                    // Decode request body
+                    const uint8Array = new Uint8Array(buffer);
+                    const decoder = new TextDecoder('utf-8');
+                    const decodedString = decoder.decode(uint8Array);
+
+                    const parsed = JSON.parse(decodedString);
+
+                    // Updated structure (no more data.data)
+                    const data = parsed.data || parsed;
+
+                    const title = data.problemId;
+                    const code = data.rawCode;
+
+                    if (details.tabId >= 0) {
+                        // Store safely per tab
+                        pendingCodeByTab[details.tabId] = { title, code };                        
                     }
-                });
+                } catch (err) {
+                    console.log("Failed to parse request body:", err);
+                }
             }
         }
-    }
-},
-    { urls: ["https://us-central1-neetcode-dd170.cloudfunctions.net/*"] },
+    },
+    {
+        urls: ["https://neetcode.io/api/*"] // updated filter
+    },
     ["requestBody"]
+);
+
+chrome.webRequest.onCompleted.addListener(
+    (details) => {
+        if (!details.url.includes("githubFunctionHttp")) return;
+
+        const tabId = details.tabId;
+        if (tabId < 0) return;
+
+        try {
+            const stored = pendingCodeByTab[tabId];
+            if (!stored) return;
+
+            const { title, code } = stored;
+
+            chrome.tabs.sendMessage(details.tabId, {
+                type: 'CODE_DATA',
+                title: title,
+                code: code
+            }, () => {
+                if (chrome.runtime.lastError) {
+                    // Ignore this instead of treating as fatal
+                    console.log("No receiver (safe to ignore):", chrome.runtime.lastError.message);
+                }
+            });
+
+            // Cleanup to avoid stale data
+            delete pendingCodeByTab[tabId];
+        } catch (err) {
+            console.log("Failed to send request:", err);
+        }
+    },
+    { urls: ["https://neetcode.io/api/*"] }
 );
 
 chrome.action.onClicked.addListener((tab) => {
