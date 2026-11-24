@@ -250,3 +250,61 @@ test('nested ordered and unordered items appear once with correct indentation', 
         '# **Example**\n\n1. Parent\n   - Child\n2. Sibling',
     );
 });
+
+test('toast styles are namespaced, reused and independent of the first notification color', () => {
+    const nodes = [];
+    const timers = [];
+    const make = tagName => ({
+        tagName,
+        style: {},
+        children: [],
+        classes: new Set(),
+        appendChild(child) {
+            this.children.push(child);
+            nodes.push(child);
+        },
+        addEventListener(type, fn) {
+            this[type] = fn;
+        },
+        remove() {
+            this.removed = true;
+        },
+        get classList() {
+            return {
+                add: name => this.classes.add(name),
+                remove: name => this.classes.delete(name),
+            };
+        },
+    });
+    const pageToast = { id: 'toast-style', textContent: 'unrelated page styles' };
+    nodes.push(pageToast);
+    const document = {
+        getElementById: id => nodes.find(node => node.id === id),
+        createElement: make,
+        body: make('body'),
+        head: make('head'),
+    };
+    const f = contentFixture({ document, setTimeout: fn => timers.push(fn) });
+    let opened = false;
+    f.context.showToast('First', '#123456');
+    f.context.showToast('Second', '#abcdef', 10000, () => {
+        opened = true;
+    });
+    const style = document.head.children[0];
+    assert.equal(document.head.children.length, 1);
+    assert.equal(style.id, 'neetcode-tracking-toast-style');
+    assert.doesNotMatch(style.textContent, /\.toast\b|#123456|#abcdef/);
+    assert.equal(pageToast.textContent, 'unrelated page styles');
+    const [first, second] = document.body.children;
+    assert.equal(first.className, 'neetcode-tracking-toast');
+    assert.equal(first.style.backgroundColor, '#123456');
+    assert.equal(second.style.backgroundColor, '#abcdef');
+    assert.equal(second.textContent, 'Second');
+    second.children[0].click();
+    assert.equal(opened, true);
+    assert.ok(first.classes.has('neetcode-tracking-toast-visible'));
+    timers[0]();
+    assert.equal(first.classes.size, 0);
+    timers.at(-1)();
+    assert.equal(first.removed, true);
+});

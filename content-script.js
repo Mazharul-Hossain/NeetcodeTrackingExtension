@@ -62,15 +62,14 @@ function getDate() {
 }
 
 function showToast(message, color, duration = 3000, action = null) {
-    if (!document.getElementById('toast-style')) {
+    if (!document.getElementById('neetcode-tracking-toast-style')) {
         const style = document.createElement('style');
-        style.id = 'toast-style';
+        style.id = 'neetcode-tracking-toast-style';
         style.textContent = `
-      .toast {
+      .neetcode-tracking-toast {
         position: fixed;
         top: 24px;
         right: 24px;
-        background-color: ${color};
         color: white;
         padding: 12px 20px;
         border-radius: 5px;
@@ -83,7 +82,7 @@ function showToast(message, color, duration = 3000, action = null) {
         z-index: 9999;
       }
     
-      .toast.show {
+      .neetcode-tracking-toast.neetcode-tracking-toast-visible {
         opacity: 1;
         pointer-events: auto;
         transform: translateY(0);
@@ -93,7 +92,7 @@ function showToast(message, color, duration = 3000, action = null) {
     }
 
     const toast = document.createElement('div');
-    toast.className = 'toast';
+    toast.className = 'neetcode-tracking-toast';
     toast.textContent = message;
     if (action) {
         const button = document.createElement('button');
@@ -109,10 +108,10 @@ function showToast(message, color, duration = 3000, action = null) {
     document.body.appendChild(toast);
 
     void toast.offsetHeight;
-    toast.classList.add('show');
+    toast.classList.add('neetcode-tracking-toast-visible');
 
     setTimeout(() => {
-        toast.classList.remove('show');
+        toast.classList.remove('neetcode-tracking-toast-visible');
         setTimeout(() => toast.remove(), 300);
     }, duration);
 }
