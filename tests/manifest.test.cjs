@@ -15,14 +15,27 @@ test('manifest loads settings and content script without any config file', () =>
     assert.deepEqual(manifest.content_scripts[0].js, ['content-script.js']);
     assert.equal(manifest.content_scripts[0].all_frames, false);
     assert.equal(manifest.web_accessible_resources, undefined);
-    assert.deepEqual(manifest.permissions.slice().sort(), ['activeTab', 'scripting', 'storage', 'webRequest'].sort());
-    for (const resource of [manifest.options_ui.page, manifest.background.service_worker, ...manifest.content_scripts[0].js, 'vault-crypto.js', 'options.js', 'options.css']) {
+    assert.deepEqual(
+        manifest.permissions.slice().sort(),
+        ['activeTab', 'scripting', 'storage', 'webRequest'].sort(),
+    );
+    for (const resource of [
+        manifest.options_ui.page,
+        manifest.background.service_worker,
+        ...manifest.content_scripts[0].js,
+        'vault-crypto.js',
+        'options.js',
+        'options.css',
+    ]) {
         assert.ok(fs.existsSync(path.join(root, resource)), `${resource} must be shipped`);
     }
 });
 test('untrusted content script has no credential, storage or authenticated networking code', () => {
     const source = fs.readFileSync(path.join(root, 'content-script.js'), 'utf8');
-    assert.doesNotMatch(source, /config\.github|Authorization|api\.github\.com|chrome\.storage|\bfetch\s*\(/);
+    assert.doesNotMatch(
+        source,
+        /config\.github|Authorization|api\.github\.com|chrome\.storage|\bfetch\s*\(/,
+    );
     const options = fs.readFileSync(path.join(root, 'options.html'), 'utf8');
     assert.doesNotMatch(options, /<script[^>]*src=["']https?:|on(?:click|submit)=/i);
 });

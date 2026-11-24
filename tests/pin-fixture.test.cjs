@@ -18,12 +18,25 @@ test('PIN fixture toolbar action opens its declared options page', async () => {
     assert.ok(manifest.background?.service_worker, 'Fixture needs a toolbar action handler');
     let handleClick;
     let opened = 0;
-    vm.runInNewContext(fs.readFileSync(path.join(fixture, manifest.background.service_worker), 'utf8'), {
-        chrome: {
-            action: { onClicked: { addListener(handler) { handleClick = handler; } } },
-            runtime: { async openOptionsPage() { opened++; } }
-        }
-    });
+    vm.runInNewContext(
+        fs.readFileSync(path.join(fixture, manifest.background.service_worker), 'utf8'),
+        {
+            chrome: {
+                action: {
+                    onClicked: {
+                        addListener(handler) {
+                            handleClick = handler;
+                        },
+                    },
+                },
+                runtime: {
+                    async openOptionsPage() {
+                        opened++;
+                    },
+                },
+            },
+        },
+    );
     assert.equal(typeof handleClick, 'function');
     await handleClick();
     assert.equal(opened, 1);

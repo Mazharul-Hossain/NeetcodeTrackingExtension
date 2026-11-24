@@ -18,7 +18,8 @@
  */
 
 async function waitForElement(getElement, identifier, signal) {
-    const unavailable = () => Object.assign(new Error('Page is not ready'), { code: 'PAGE_NOT_READY' });
+    const unavailable = () =>
+        Object.assign(new Error('Page is not ready'), { code: 'PAGE_NOT_READY' });
     if (signal?.aborted) throw unavailable();
     const targetElement = document[getElement](identifier);
     if (targetElement) {
@@ -44,7 +45,7 @@ async function waitForElement(getElement, identifier, signal) {
         });
         observer.observe(document.body || document.documentElement, {
             childList: true,
-            subtree: true
+            subtree: true,
         });
         timer = setTimeout(cancel, 10000);
         signal?.addEventListener('abort', cancel, { once: true });
@@ -56,7 +57,6 @@ function getDate() {
     const date = new Date();
     return date.toISOString().split('T')[0];
 }
-
 
 function showToast(message, color, duration = 3000, action = null) {
     if (!document.getElementById('toast-style')) {
@@ -97,7 +97,9 @@ function showToast(message, color, duration = 3000, action = null) {
         button.type = 'button';
         button.textContent = 'Open settings';
         button.style.marginLeft = '12px';
-        button.addEventListener('click', () => { Promise.resolve(action()).catch(() => {}); });
+        button.addEventListener('click', () => {
+            Promise.resolve(action()).catch(() => {});
+        });
         toast.appendChild(button);
     }
     toast.style.backgroundColor = color;
@@ -112,20 +114,19 @@ function showToast(message, color, duration = 3000, action = null) {
     }, duration);
 }
 
-
 function getLanguage(language) {
-    if (language === "Python") {
-        return "py";
-    } else if (language === "Java") {
-        return "java";
-    } else if (language === "C++") {
-        return "cpp";
-    } else if (language === "C#") {
-        return "c";
-    } else if (language === "JavaScript") {
-        return "js";
+    if (language === 'Python') {
+        return 'py';
+    } else if (language === 'Java') {
+        return 'java';
+    } else if (language === 'C++') {
+        return 'cpp';
+    } else if (language === 'C#') {
+        return 'c';
+    } else if (language === 'JavaScript') {
+        return 'js';
     }
-    return "py";
+    return 'py';
 }
 
 async function waitForTopics() {
@@ -133,9 +134,9 @@ async function waitForTopics() {
     const container = document.querySelector('.company-tags-container');
     if (!container) return [];
 
-    return Array.from(
-        container.querySelectorAll('.company-tag-reveal-btn')
-    ).map(el => el.textContent.trim());
+    return Array.from(container.querySelectorAll('.company-tag-reveal-btn')).map(el =>
+        el.textContent.trim(),
+    );
 }
 
 async function buildUploadPayload(code, questionTitle, questionContent, language) {
@@ -161,14 +162,30 @@ ${questionContent}
     `;
 
     const files = [];
-    if (code && code.trim()) files.push({ kind: 'solution', extension: getLanguage(language), content: code });
+    if (code && code.trim())
+        files.push({ kind: 'solution', extension: getLanguage(language), content: code });
     files.push({ kind: 'problem', extension: 'md', content: enrichedMarkdown });
     return { category, title, date, files };
 }
 
-async function addContentToGitHub(code, questionTitle, questionContent, language, uploadTicket, pageUrl = null) {
+async function addContentToGitHub(
+    code,
+    questionTitle,
+    questionContent,
+    language,
+    uploadTicket,
+    pageUrl = null,
+) {
     const payload = await buildUploadPayload(code, questionTitle, questionContent, language);
-    if (pageUrl && location.href !== pageUrl) return { ok: false, error: { code: 'PAGE_CHANGED', message: 'The page changed before saving. Click the extension again on the problem you want to save.' } };
+    if (pageUrl && location.href !== pageUrl)
+        return {
+            ok: false,
+            error: {
+                code: 'PAGE_CHANGED',
+                message:
+                    'The page changed before saving. Click the extension again on the problem you want to save.',
+            },
+        };
     return chrome.runtime.sendMessage({ type: 'UPLOAD_PROBLEM', payload, uploadTicket });
 }
 
@@ -262,7 +279,7 @@ function formatArticleComponent(title, articleComponent) {
                     let olContent = '';
                     const orderedItems = node.querySelectorAll('li');
                     for (let i = 0; i < orderedItems.length; i++) {
-                        olContent += (i + 1) + '. ' + orderedItems[i].textContent.trim() + '\n';
+                        olContent += i + 1 + '. ' + orderedItems[i].textContent.trim() + '\n';
                     }
                     return olContent + '\n';
 
@@ -271,8 +288,13 @@ function formatArticleComponent(title, articleComponent) {
                         const summary = node.querySelector('summary');
                         const content = node.querySelector('div') || node.querySelector('p');
                         if (summary && content) {
-                            return '### ' + summary.textContent.trim() + '\n\n' +
-                                content.textContent.trim() + '\n\n';
+                            return (
+                                '### ' +
+                                summary.textContent.trim() +
+                                '\n\n' +
+                                content.textContent.trim() +
+                                '\n\n'
+                            );
                         }
                     }
                     break;
@@ -289,7 +311,10 @@ function formatArticleComponent(title, articleComponent) {
                     return '*' + textContent + '*';
 
                 case 'code':
-                    if (node.parentElement && node.parentElement.classList.contains('code-toolbar')) {
+                    if (
+                        node.parentElement &&
+                        node.parentElement.classList.contains('code-toolbar')
+                    ) {
                         return '```\n' + textContent + '\n```\n\n';
                     }
                     return '\`' + textContent + '\`';
@@ -329,11 +354,11 @@ function formatArticleComponent(title, articleComponent) {
 function getCategory() {
     const text = document.body.innerText.toLowerCase();
 
-    if (text.includes("system design")) {
-        return "System Design";
+    if (text.includes('system design')) {
+        return 'System Design';
     }
 
-    return "Data Structures & Algorithms";
+    return 'Data Structures & Algorithms';
 }
 
 // Central function that handles:
@@ -349,10 +374,18 @@ async function processAndUpload(code, source = 'auto', uploadTicket = null, page
     try {
         // Wait for required DOM elements
         const questionTitle = await waitForElement('querySelector', 'h1', controller.signal);
-        const articleComponent = await waitForElement('querySelector', 'main.my-article-component-container', controller.signal);
+        const articleComponent = await waitForElement(
+            'querySelector',
+            'main.my-article-component-container',
+            controller.signal,
+        );
         // Convert problem description into markdown
         const markdownContent = formatArticleComponent(questionTitle.textContent, articleComponent);
-        const languageElement = await waitForElement('querySelector', '.selected-language', controller.signal);
+        const languageElement = await waitForElement(
+            'querySelector',
+            '.selected-language',
+            controller.signal,
+        );
         clearTimeout(deadline);
 
         // Extract and normalize title for file path
@@ -363,7 +396,14 @@ async function processAndUpload(code, source = 'auto', uploadTicket = null, page
         }
 
         // Upload everything to GitHub
-        const uploadResult = await addContentToGitHub(code, title, markdownContent, languageElement.textContent, uploadTicket, pageUrl);
+        const uploadResult = await addContentToGitHub(
+            code,
+            title,
+            markdownContent,
+            languageElement.textContent,
+            uploadTicket,
+            pageUrl,
+        );
         // Handle success response
         if (uploadResult?.ok) {
             let message;
@@ -378,19 +418,24 @@ async function processAndUpload(code, source = 'auto', uploadTicket = null, page
 
             showToast(message, '#007bff');
         } else {
-            const actionable = ['NOT_CONFIGURED', 'VAULT_LOCKED'].includes(uploadResult?.error?.code);
+            const actionable = ['NOT_CONFIGURED', 'VAULT_LOCKED'].includes(
+                uploadResult?.error?.code,
+            );
             const message = uploadResult?.error?.message || 'Failed to add to GitHub';
-            showToast(message, '#e74c3c', actionable ? 10000 : 3000,
-                actionable ? () => chrome.runtime.sendMessage({ type: 'OPEN_SETTINGS' }) : null);
+            showToast(
+                message,
+                '#e74c3c',
+                actionable ? 10000 : 3000,
+                actionable ? () => chrome.runtime.sendMessage({ type: 'OPEN_SETTINGS' }) : null,
+            );
         }
-
     } catch (error) {
-
-        const failMessage = error?.code === 'PAGE_NOT_READY'
-            ? 'Problem details did not load. Try again when the NeetCode page finishes loading.' :
-            source === 'manual'
-                ? 'Manual save failed'
-                : 'Failed to add to GitHub';
+        const failMessage =
+            error?.code === 'PAGE_NOT_READY'
+                ? 'Problem details did not load. Try again when the NeetCode page finishes loading.'
+                : source === 'manual'
+                  ? 'Manual save failed'
+                  : 'Failed to add to GitHub';
 
         showToast(failMessage, '#e74c3c');
     } finally {
@@ -414,7 +459,6 @@ function getCode() {
         .join('\n');
 }
 
-
 // Only the extension worker may trigger extraction. No credential messages here.
 // Declarative loading and toolbar recovery may both run; install one receiver.
 if (globalThis.__neetcodeTrackingReceiverId !== chrome.runtime.id) {
@@ -424,9 +468,17 @@ if (globalThis.__neetcodeTrackingReceiverId !== chrome.runtime.id) {
             sendResponse?.({ ready: true });
             return false;
         } else if (message.type === 'SAVE_BLOCKED') {
-            showToast(message.error?.message || 'Open settings before saving.', '#e74c3c', 10000,
-                () => chrome.runtime.sendMessage({ type: 'OPEN_SETTINGS' }));
-        } else if (message.type === 'CODE_DATA' && typeof message.code === 'string' && message.title) {
+            showToast(
+                message.error?.message || 'Open settings before saving.',
+                '#e74c3c',
+                10000,
+                () => chrome.runtime.sendMessage({ type: 'OPEN_SETTINGS' }),
+            );
+        } else if (
+            message.type === 'CODE_DATA' &&
+            typeof message.code === 'string' &&
+            message.title
+        ) {
             const pageUrl = location.href;
             if (pageUrl !== message.pageUrl) {
                 sendResponse?.({ accepted: false, reason: 'PAGE_CHANGED' });

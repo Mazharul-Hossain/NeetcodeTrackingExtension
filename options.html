@@ -1,59 +1,135 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>NeetCode Tracking 2.0 — Settings</title>
-  <link rel="stylesheet" href="options.css">
-  <script src="options.js" defer></script>
-</head>
-<body>
-  <main>
-    <header><p class="eyebrow">NEETCODE TRACKING 2.0</p><h1>Connect your GitHub repository</h1>
-      <p>Save your solutions and problem notes to a repository you control.</p>
-      <p class="hint">Saving sends your solution, problem description, and commit identity to your GitHub repository.
-        Files and commit details are public if the repository is public.</p></header>
-    <p id="settings-status" role="status" aria-live="polite"></p>
-    <section class="vault" aria-labelledby="vault-heading">
-      <h2 id="vault-heading">Token protection</h2>
-      <p id="vault-status" role="status">Checking settings…</p>
-      <div class="buttons"><button id="unlock-vault" type="button">Unlock with PIN</button>
-        <button id="lock-vault" type="button" class="secondary">Lock</button></div>
-      <p class="hint">Your token is encrypted on this device. After restarting Chrome, unlock with a compatible passkey PIN.
-        The browser or provider controls the prompt and may also offer biometrics. Windows Hello PIN was verified on Chrome 157.</p>
-      <p class="hint">Keep access to your passkey. If it is lost, clear these settings and configure a replacement token and passkey.</p>
-    </section>
-    <form id="settings-form">
-      <label for="github-username">GitHub username or organization</label>
-      <input id="github-username" name="username" required maxlength="39" autocomplete="off" spellcheck="false" placeholder="your-github-name">
-      <label for="github-repository">Repository name</label>
-      <input id="github-repository" name="repository" required maxlength="100" autocomplete="off" spellcheck="false" placeholder="neetcode-solutions" aria-describedby="repository-hint">
-      <p id="repository-hint" class="hint">Enter the name only, without a URL or .git suffix. Files save to its default branch.</p>
-      <label for="github-token">GitHub personal access token <span class="hint">(Leave blank to keep the saved token)</span></label>
-      <input id="github-token" type="password" maxlength="1024" autocomplete="off" spellcheck="false" aria-describedby="token-hint">
-      <p id="token-hint" class="hint">Use a fine-grained token restricted to this repository, with Contents read/write and an expiration.
-        Save encrypts a new token using a passkey and locks the vault;
-        use Unlock with PIN afterward. Test connection does not save it.</p>
-      <label for="committer-name">Committer name</label>
-      <input id="committer-name" name="committerName" required maxlength="200" autocomplete="name">
-      <label for="committer-email">Committer email</label>
-      <input id="committer-email" name="committerEmail" type="email" required maxlength="254" autocomplete="email" aria-describedby="email-hint">
-      <p id="email-hint" class="hint">This identity appears in Git commits. You can use your GitHub noreply email.</p>
-      <div class="buttons"><button id="save-settings" type="submit">Save settings</button>
-        <button id="test-connection" type="button" class="secondary">Test connection</button></div>
-    </form>
-    <button id="refresh-settings" type="button" class="secondary" hidden>Reload settings and discard unsaved edits</button>
-    <section class="clear-section" aria-labelledby="clear-heading">
-      <h2 id="clear-heading">Remove saved settings</h2>
-      <p class="hint">Clear removes the local token vault and unlocked session. Revoke the token separately in GitHub settings;
-        remove the passkey separately in Windows or your passkey provider if desired.</p>
-      <button id="clear-settings" type="button" class="secondary danger">Clear settings…</button>
-      <div id="clear-confirmation" hidden><p>Remove all saved connection settings and encrypted token from this extension?</p>
-        <div class="buttons"><button id="confirm-clear" type="button" class="danger">Yes, clear settings</button>
-          <button id="cancel-clear" type="button" class="secondary">Cancel</button></div></div>
-    </section>
-    <footer><p>While unlocked, your token is held in memory for this browser session. Encryption does not protect against
-      compromised extension code or malware accessing an unlocked browser. Locked saves are not replayed; unlock and save again.</p></footer>
-  </main>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NeetCode Tracking 2.0 — Settings</title>
+    <link rel="stylesheet" href="options.css" />
+    <script src="options.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">NEETCODE TRACKING 2.0</p>
+        <h1>Connect your GitHub repository</h1>
+        <p>Save your solutions and problem notes to a repository you control.</p>
+        <p class="hint">
+          Saving sends your solution, problem description, and commit identity to your GitHub
+          repository. Files and commit details are public if the repository is public.
+        </p>
+      </header>
+      <p id="settings-status" role="status" aria-live="polite"></p>
+      <section class="vault" aria-labelledby="vault-heading">
+        <h2 id="vault-heading">Token protection</h2>
+        <p id="vault-status" role="status">Checking settings…</p>
+        <div class="buttons">
+          <button id="unlock-vault" type="button">Unlock with PIN</button>
+          <button id="lock-vault" type="button" class="secondary">Lock</button>
+        </div>
+        <p class="hint">
+          Your token is encrypted on this device. After restarting Chrome, unlock with a compatible
+          passkey PIN. The browser or provider controls the prompt and may also offer biometrics.
+          Windows Hello PIN was verified on Chrome 157.
+        </p>
+        <p class="hint">
+          Keep access to your passkey. If it is lost, clear these settings and configure a
+          replacement token and passkey.
+        </p>
+      </section>
+      <form id="settings-form">
+        <label for="github-username">GitHub username or organization</label>
+        <input
+          id="github-username"
+          name="username"
+          required
+          maxlength="39"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="your-github-name"
+        />
+        <label for="github-repository">Repository name</label>
+        <input
+          id="github-repository"
+          name="repository"
+          required
+          maxlength="100"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="neetcode-solutions"
+          aria-describedby="repository-hint"
+        />
+        <p id="repository-hint" class="hint">
+          Enter the name only, without a URL or .git suffix. Files save to its default branch.
+        </p>
+        <label for="github-token"
+          >GitHub personal access token
+          <span class="hint">(Leave blank to keep the saved token)</span></label
+        >
+        <input
+          id="github-token"
+          type="password"
+          maxlength="1024"
+          autocomplete="off"
+          spellcheck="false"
+          aria-describedby="token-hint"
+        />
+        <p id="token-hint" class="hint">
+          Use a fine-grained token restricted to this repository, with Contents read/write and an
+          expiration. Save encrypts a new token using a passkey and locks the vault; use Unlock with
+          PIN afterward. Test connection does not save it.
+        </p>
+        <label for="committer-name">Committer name</label>
+        <input
+          id="committer-name"
+          name="committerName"
+          required
+          maxlength="200"
+          autocomplete="name"
+        />
+        <label for="committer-email">Committer email</label>
+        <input
+          id="committer-email"
+          name="committerEmail"
+          type="email"
+          required
+          maxlength="254"
+          autocomplete="email"
+          aria-describedby="email-hint"
+        />
+        <p id="email-hint" class="hint">
+          This identity appears in Git commits. You can use your GitHub noreply email.
+        </p>
+        <div class="buttons">
+          <button id="save-settings" type="submit">Save settings</button>
+          <button id="test-connection" type="button" class="secondary">Test connection</button>
+        </div>
+      </form>
+      <button id="refresh-settings" type="button" class="secondary" hidden>
+        Reload settings and discard unsaved edits
+      </button>
+      <section class="clear-section" aria-labelledby="clear-heading">
+        <h2 id="clear-heading">Remove saved settings</h2>
+        <p class="hint">
+          Clear removes the local token vault and unlocked session. Revoke the token separately in
+          GitHub settings; remove the passkey separately in Windows or your passkey provider if
+          desired.
+        </p>
+        <button id="clear-settings" type="button" class="secondary danger">Clear settings…</button>
+        <div id="clear-confirmation" hidden>
+          <p>Remove all saved connection settings and encrypted token from this extension?</p>
+          <div class="buttons">
+            <button id="confirm-clear" type="button" class="danger">Yes, clear settings</button>
+            <button id="cancel-clear" type="button" class="secondary">Cancel</button>
+          </div>
+        </div>
+      </section>
+      <footer>
+        <p>
+          While unlocked, your token is held in memory for this browser session. Encryption does not
+          protect against compromised extension code or malware accessing an unlocked browser.
+          Locked saves are not replayed; unlock and save again.
+        </p>
+      </footer>
+    </main>
+  </body>
 </html>

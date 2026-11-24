@@ -10,12 +10,20 @@ const path = require('node:path');
 const { loadScript, root } = require('./helpers/extension-harness.cjs');
 
 function api() {
-    assert.ok(fs.existsSync(path.join(root, 'vault-crypto.js')), 'Vault encryption implementation must exist');
+    assert.ok(
+        fs.existsSync(path.join(root, 'vault-crypto.js')),
+        'Vault encryption implementation must exist',
+    );
     return loadScript('vault-crypto.js').evaluate('VaultCrypto');
 }
 const bytes = n => new Uint8Array(n).fill(7);
 function metadata(v) {
-    return { vaultId: v.pack(bytes(16)), rpId: 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', credentialId: v.pack(bytes(32)), prfSalt: v.pack(bytes(32)) };
+    return {
+        vaultId: v.pack(bytes(16)),
+        rpId: 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        credentialId: v.pack(bytes(32)),
+        prfSalt: v.pack(bytes(32)),
+    };
 }
 test('vault encrypts UTF-8 token and decrypts only with its PRF key', async () => {
     const v = api();
@@ -41,7 +49,12 @@ test('tampered ciphertext and authenticated metadata cannot decrypt', async () =
         raw[0] ^= 1;
         await assert.rejects(v.decryptToken({ ...record, [key]: v.pack(raw) }, bytes(32)), key);
     }
-    await assert.rejects(v.decryptToken({ ...record, rpId: 'chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' }, bytes(32)));
+    await assert.rejects(
+        v.decryptToken(
+            { ...record, rpId: 'chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' },
+            bytes(32),
+        ),
+    );
 });
 test('unknown versions, malformed lengths and invalid PRF keys fail closed', async () => {
     const v = api();
