@@ -1015,13 +1015,18 @@ chrome.webRequest.onCompleted.addListener(
                 fail('PAGE_CHANGED');
             }
             const uploadTicket = await issueUploadTicket(tabId, pageUrl);
-            await sendToTab(tabId, {
+            await ensurePageReceiver(tabId);
+            if (stored.navigation !== (navigationByTab.get(tabId) || 0)) fail('PAGE_CHANGED');
+            const response = await sendToTab(tabId, {
                 type: 'CODE_DATA',
                 title: stored.title,
                 code: stored.code,
                 uploadTicket,
                 pageUrl,
             });
+            // The receiver explains stale-page rejection; never retry a delivered save.
+            if (response?.reason === 'PAGE_CHANGED') return;
+            if (response?.accepted !== true) fail('PAGE_UNAVAILABLE');
         } catch (error) {
             await sendToTab(tabId, {
                 type: 'SAVE_BLOCKED',

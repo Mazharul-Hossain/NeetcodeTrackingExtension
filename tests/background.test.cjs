@@ -40,14 +40,14 @@ async function assertTabRouting(transform) {
     await release(f, 2);
     await release(f, 1);
     assert.deepEqual(
-        f.sent.map(args => [args[0], args[1].code]),
+        f.sent.filter(args => args[1].type === 'CODE_DATA').map(args => [args[0], args[1].code]),
         [
             [2, 'code two'],
             [1, 'code one'],
         ],
     );
     await release(f, 1);
-    assert.equal(f.sent.length, 2, 'pending capture cleaned after release');
+    assert.equal(f.sent.length, 4, 'Readiness probes and code are sent once per tab');
 }
 
 test('captured code stays with its tab and is released only once', () => assertTabRouting());
@@ -324,4 +324,83 @@ test('malformed newer submissions cannot release an older capture', async () => 
     });
     await release(f, 7);
     assert.equal(f.sent.length, 0);
+});
+
+test('automatic saves reconnect missing receivers once without replaying captured code', async () => {
+    const f = backgroundFixture();
+    await configure(f);
+    let connected = false;
+    const events = [];
+    f.chrome.tabs.sendMessage = async (tabId, message, target) => {
+        assert.equal(tabId, 7);
+        assert.equal(target.frameId, 0);
+        events.push(message.type);
+        if (!connected) throw new Error('Receiver disconnected');
+        if (message.type === 'PAGE_READY') return { ready: true };
+        assert.equal(message.code, 'synthetic code');
+        return { accepted: true };
+    };
+    f.chrome.scripting = {
+        executeScript: async spec => {
+            assert.equal(spec.target.tabId, 7);
+            assert.equal(spec.world, 'ISOLATED');
+            assert.deepEqual(Array.from(spec.files), ['content-script.js']);
+            events.push('inject');
+            connected = true;
+        },
+    };
+    capture(f, 7, 'two-sum', 'synthetic code');
+    await release(f, 7);
+    await release(f, 7);
+    assert.deepEqual(events, ['PAGE_READY', 'inject', 'PAGE_READY', 'CODE_DATA']);
+});
+
+test('navigation during automatic reconnection prevents captured code delivery', async () => {
+    const f = backgroundFixture();
+    await configure(f);
+    const messages = [];
+    f.chrome.tabs.sendMessage = async (_tab, message) => {
+        messages.push(message);
+        if (message.type === 'PAGE_READY') {
+            f.chrome.tabs.onUpdated.fire(7, {
+                url: 'https://neetcode.io/problems/two-sum?tab=results',
+            });
+            return { ready: true };
+        }
+        return { accepted: true };
+    };
+    capture(f, 7, 'two-sum', 'synthetic code');
+    await release(f, 7);
+    assert.deepEqual(
+        messages.map(message => message.type),
+        ['PAGE_READY', 'SAVE_BLOCKED'],
+    );
+    assert.equal(messages[1].error.code, 'PAGE_CHANGED');
+    assert.equal(f.calls.length, 0);
+});
+
+test('ambiguous automatic delivery is not retried and stale-page rejection is not reported twice', async () => {
+    for (const mode of ['closed', 'unacknowledged', 'stale']) {
+        const f = backgroundFixture();
+        await configure(f);
+        const types = [];
+        f.chrome.tabs.sendMessage = async (_tab, message) => {
+            types.push(message.type);
+            if (message.type === 'PAGE_READY') return { ready: true };
+            if (message.type === 'CODE_DATA') {
+                if (mode === 'closed') throw new Error('Port closed');
+                return mode === 'stale' ? { accepted: false, reason: 'PAGE_CHANGED' } : undefined;
+            }
+            return { accepted: true };
+        };
+        capture(f, 7, 'two-sum', 'synthetic code');
+        await release(f, 7);
+        await release(f, 7);
+        assert.deepEqual(
+            types,
+            mode === 'stale'
+                ? ['PAGE_READY', 'CODE_DATA']
+                : ['PAGE_READY', 'CODE_DATA', 'SAVE_BLOCKED'],
+        );
+    }
 });

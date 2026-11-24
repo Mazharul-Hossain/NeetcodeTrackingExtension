@@ -354,3 +354,23 @@ test('manual and automatic no-op saves report that the problem is already saved'
         }
     }
 });
+
+test('stale automatic saves show a fixed toast, including query-only route changes', () => {
+    const f = fixture({ ok: true });
+    const pageUrl = 'https://neetcode.io/problems/two-sum?tab=question';
+    f.context.location.href = 'https://neetcode.io/problems/two-sum?tab=results';
+    let acknowledgement;
+    f.context.chrome.runtime.onMessage.fire(
+        { type: 'CODE_DATA', pageUrl, title: 'two-sum', code: 'synthetic code' },
+        { id: 'extension' },
+        value => {
+            acknowledgement = value;
+        },
+    );
+    assert.equal(acknowledgement.reason, 'PAGE_CHANGED');
+    assert.equal(f.messages.length, 0);
+    assert.equal(
+        f.context.toasts.at(-1).message,
+        'The page changed before the automatic save arrived. Click the extension again to save this problem.',
+    );
+});

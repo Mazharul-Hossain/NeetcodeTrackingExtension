@@ -580,6 +580,10 @@ if (globalThis.__neetcodeTrackingReceiverId !== chrome.runtime.id) {
         ) {
             const pageUrl = location.href;
             if (pageUrl !== message.pageUrl) {
+                showToast(
+                    'The page changed before the automatic save arrived. Click the extension again to save this problem.',
+                    '#f39c12',
+                );
                 sendResponse?.({ accepted: false, reason: 'PAGE_CHANGED' });
                 return false;
             }
