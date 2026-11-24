@@ -622,6 +622,9 @@ async function upsertGitHubFile(settings, payload, file, revision) {
         .join('/');
     const endpoint = `${repositoryPath(settings)}/contents/${path}`;
     const existing = await githubRequest(settings, endpoint, { method: 'GET' }, revision);
+    if (existing.status === 200 && file.kind === 'problem') {
+        return { kind: file.kind, status: 200, updated: false, skipped: true };
+    }
     const body = {
         message: `Added ${payload.title} on ${payload.date}`,
         committer: { name: settings.committerName, email: settings.committerEmail },

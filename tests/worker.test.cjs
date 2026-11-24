@@ -560,3 +560,38 @@ test('SPA route validation still rejects foreign document origins and nonproblem
         );
     }
 });
+
+test('repeat saves preserve existing Markdown notes, front matter and creation date without a PUT', async () => {
+    const existing =
+        '---\ncreated: 2020-01-01\ntags: [custom]\n---\n## Notes\nMy synthetic notes\n---\nOriginal description';
+    const f = workerFixture({
+        fetch: async (url, init) => {
+            if (init.method === 'GET') {
+                return response(200, {
+                    sha: 'existing-sha',
+                    encoding: 'base64',
+                    content: Buffer.from(existing).toString('base64'),
+                });
+            }
+            assert.ok(url.endsWith('/solution.py'), 'Existing problem.md must never be written');
+            return response(200);
+        },
+    });
+    await configure(f);
+    const result = await f.request({ type: 'UPLOAD_PROBLEM', payload }, problemSender);
+    assert.equal(result.ok, true);
+    assert.deepEqual(
+        f.calls.map(call => call[1].method),
+        ['GET', 'PUT', 'GET'],
+    );
+    assert.equal(result.files.find(file => file.kind === 'problem').skipped, true);
+    const onlyProblem = {
+        ...payload,
+        files: payload.files.filter(file => file.kind === 'problem'),
+    };
+    const again = await f.request({ type: 'UPLOAD_PROBLEM', payload: onlyProblem }, problemSender);
+    assert.equal(again.ok, true);
+    assert.equal(again.files[0].skipped, true);
+    assert.equal(f.calls.at(-1)[1].method, 'GET');
+});
+
