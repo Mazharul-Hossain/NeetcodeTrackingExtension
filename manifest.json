@@ -13,7 +13,7 @@
     "48": "icon.png",
     "128": "icon.png"
   },
-  "permissions": ["activeTab", "storage", "scripting", "webRequest"],
+  "permissions": ["storage", "scripting", "webRequest"],
   "host_permissions": ["https://api.github.com/*", "https://neetcode.io/*"],
   "content_scripts": [
     {

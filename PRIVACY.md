@@ -15,6 +15,8 @@ NeetCode Tracking saves your NeetCode solutions and problem descriptions to a Gi
 
 The extension uses this information only to configure your connection, protect and unlock your token, test GitHub access, and save or update problem files in your chosen repository.
 
+Website access is limited to the declared `https://neetcode.io/*` and `https://api.github.com/*` hosts. Toolbar saves use the existing NeetCode host access to read the editor.
+
 Your token is sent to GitHub over HTTPS for authentication. Saving sends solution code, problem descriptions, and commit information to GitHub. **If your repository is public, its saved files and commit details—including the committer name and email—are public.** Use a private repository and a GitHub noreply email if appropriate for your needs.
 
 The extension does not send this information to a developer-operated server. GitHub handles information it receives under its own policies. Your selected passkey provider handles passkey creation, verification, storage, and any provider-supported synchronization under its own policies. NeetCode's own website and GitHub integration operate separately from this extension.

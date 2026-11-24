@@ -101,12 +101,13 @@ Connection settings are stored locally, not synced across devices. The extension
 
 | Permission or access | Purpose |
 | --- | --- |
-| `activeTab` | Access the tab when you click the extension |
 | `scripting` | Reconnect the page script on already-open NeetCode tabs and read the complete Monaco editor model for toolbar saves |
 | `storage` | Store connection settings, the encrypted token, and the unlocked session |
 | `webRequest` | Observe NeetCode submission and GitHub-sync events for automatic capture |
 | `neetcode.io` | Extract the problem description and solution |
 | `api.github.com` | Authenticate and save files to your repository |
+
+Toolbar saves and page-script recovery use the declared `neetcode.io` host access together with `scripting`.
 
 ## Troubleshooting
 

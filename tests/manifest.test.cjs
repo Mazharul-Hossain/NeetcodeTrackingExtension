@@ -17,7 +17,11 @@ test('manifest loads settings and content script without any config file', () =>
     assert.equal(manifest.web_accessible_resources, undefined);
     assert.deepEqual(
         manifest.permissions.slice().sort(),
-        ['activeTab', 'scripting', 'storage', 'webRequest'].sort(),
+        ['scripting', 'storage', 'webRequest'].sort(),
+    );
+    assert.deepEqual(
+        manifest.host_permissions.slice().sort(),
+        ['https://api.github.com/*', 'https://neetcode.io/*'].sort(),
     );
     for (const resource of [
         manifest.options_ui.page,
