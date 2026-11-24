@@ -1,22 +1,54 @@
-async function waitForElement(getElement, identifier) {
-    console.log("Waiting for:", identifier);
+/*
+ * Project tree (root -> file -> responsibilities):
+ * NeetcodeTrackingExtension/
+ * `-- content-script.js (loaded by manifest.json on NeetCode)
+ *     |-- DOM helpers: wait for page elements, read code, and show toasts
+ *     |-- Markdown helpers: format descriptions, math, topics, and dates
+ *     |-- Upload preparation: send credential-free problem files to the worker
+ *     `-- message listener: route CODE_DATA / MANUAL_TRIGGER to processAndUpload
+ *
+ * Purpose: extract NeetCode problem details and save them with optional solution
+ * code under {category}/{problem-title}/ in the configured GitHub repository.
+ * Depends on messages and sanitized results from background.js; no credentials.
+ *
+ * Agent skills: no additional Codex skill required. Relevant knowledge: browser
+ * DOM/MutationObserver, Chrome messaging, Markdown/KaTeX, UTF-8/Base64 encoding,
+ * and the GitHub Contents API (including file SHAs for updates). Use the
+ * computer-use skill if validating the extension through a live browser UI.
+ */
+
+async function waitForElement(getElement, identifier, signal) {
+    const unavailable = () => Object.assign(new Error('Page is not ready'), { code: 'PAGE_NOT_READY' });
+    if (signal?.aborted) throw unavailable();
     const targetElement = document[getElement](identifier);
     if (targetElement) {
         return targetElement;
     }
 
-    return new Promise((resolve) => {
-        const observer = new MutationObserver((_, observer) => {
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        let timer;
+        const finish = element => {
+            if (settled) return;
+            settled = true;
+            observer.disconnect();
+            clearTimeout(timer);
+            signal?.removeEventListener('abort', cancel);
+            if (element) resolve(element);
+            else reject(unavailable());
+        };
+        const cancel = () => finish(null);
+        const observer = new MutationObserver(() => {
             const element = document[getElement](identifier);
-            if (element) {
-                observer.disconnect();
-                resolve(element);
-            }
+            if (element) finish(element);
         });
-        observer.observe(document.body, {
+        observer.observe(document.body || document.documentElement, {
             childList: true,
             subtree: true
         });
+        timer = setTimeout(cancel, 10000);
+        signal?.addEventListener('abort', cancel, { once: true });
+        if (signal?.aborted) cancel();
     });
 }
 
@@ -26,7 +58,7 @@ function getDate() {
 }
 
 
-function showToast(message, color, duration = 3000) {
+function showToast(message, color, duration = 3000, action = null) {
     if (!document.getElementById('toast-style')) {
         const style = document.createElement('style');
         style.id = 'toast-style';
@@ -60,6 +92,14 @@ function showToast(message, color, duration = 3000) {
     const toast = document.createElement('div');
     toast.className = 'toast';
     toast.textContent = message;
+    if (action) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = 'Open settings';
+        button.style.marginLeft = '12px';
+        button.addEventListener('click', () => { Promise.resolve(action()).catch(() => {}); });
+        toast.appendChild(button);
+    }
     toast.style.backgroundColor = color;
     document.body.appendChild(toast);
 
@@ -70,54 +110,6 @@ function showToast(message, color, duration = 3000) {
         toast.classList.remove('show');
         setTimeout(() => toast.remove(), 300);
     }, duration);
-}
-
-
-async function findExistingFile(dataToFind, pathName) {
-    const response = await fetch(
-        `https://api.github.com/repos/${config.github.username}/${config.github.repo_name}/contents/${pathName}`,
-        dataToFind
-    );
-
-    // 404 = file does NOT exist (normal case)
-    if (response.status === 404) {
-        return {
-            response: null,
-            status: 404
-        };
-    }
-
-    if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`GitHub GET failed: ${response.status} ${text}`);
-    }
-
-    const data = await response.json();
-
-    return {
-        response: data,
-        status: response.status
-    };
-}
-
-async function uploadToGitHub(pathName, dataToAdd) {
-    const response = await fetch(
-        `https://api.github.com/repos/${config.github.username}/${config.github.repo_name}/contents/${pathName}`,
-        {
-            method: 'PUT',
-            headers: {
-                'Authorization': `Bearer ${config.github.token}`,
-                'X-GitHub-Api-Version': '2022-11-28'
-            },
-            body: JSON.stringify(dataToAdd)
-        }
-    );
-    const data = await response.json();
-    const status = response.status;
-    return {
-        "response": data,
-        "status": status
-    };
 }
 
 
@@ -137,25 +129,18 @@ function getLanguage(language) {
 }
 
 async function waitForTopics() {
-    const container = await waitForElement(
-        'querySelector',
-        '.company-tags-container'
-    );
+    // Tags are optional: their absence must not hold the solution upload open.
+    const container = document.querySelector('.company-tags-container');
+    if (!container) return [];
 
     return Array.from(
         container.querySelectorAll('.company-tag-reveal-btn')
     ).map(el => el.textContent.trim());
 }
 
-async function addContentToGitHub(code, questionTitle, questionContent, language) {
+async function buildUploadPayload(code, questionTitle, questionContent, language) {
     const category = getCategory();
     const title = questionTitle.replaceAll(' ', '-').toLowerCase().trim();
-
-    let solutionAdded = { status: 200 }; // default success
-    if (code && code.trim() !== "") {
-        solutionAdded = await addToGithub(code, title, "solution", getLanguage(language));
-    }
-
     const date = getDate();
     const topics = await waitForTopics();
     const enrichedMarkdown = `---
@@ -175,75 +160,16 @@ created: ${date}
 ${questionContent}
     `;
 
-    const problemAdded = await addToGithub(enrichedMarkdown, title, "problem", "md");
-
-    if (solutionAdded.status !== 201 && solutionAdded.status !== 200) {
-        return solutionAdded;
-    }
-
-    if (problemAdded.status !== 201 && problemAdded.status !== 200) {
-        return problemAdded;
-    }
-
-    return problemAdded;
+    const files = [];
+    if (code && code.trim()) files.push({ kind: 'solution', extension: getLanguage(language), content: code });
+    files.push({ kind: 'problem', extension: 'md', content: enrichedMarkdown });
+    return { category, title, date, files };
 }
 
-async function addToGithub(content, title, contentType, fileType) {
-    try {
-        const date = getDate();
-        // const pathName = `${date}/${title}/${contentType}.${fileType}`;
-        const category = getCategory();
-        const pathName = `${category}/${title}/${contentType}.${fileType}`;
-
-        console.log("Step 2: sending to background / GitHub:", pathName);
-
-        const dataToAdd = {
-            owner: config.github.username,
-            repo: config.github.repo_name,
-            path: 'PATH',
-            message: `Added ${title} on ${date}`,
-            committer: {
-                name: config.github.committer_name,
-                email: config.github.committer_email
-            },
-            content: btoa(String.fromCharCode(...new TextEncoder().encode(content)))
-        }
-        const dataToFind = {
-            owner: config.github.username,
-            repo: config.github.repo_name,
-            path: 'PATH',
-            headers: {
-                'Authorization': `Bearer ${config.github.token}`,
-                'X-GitHub-Api-Version': '2022-11-28'
-            }
-        }
-        const existingFile = await findExistingFile(dataToFind, pathName);
-        if (existingFile.status === 200) {
-            dataToAdd.sha = existingFile.response.sha;
-            const data = await uploadToGitHub(pathName, dataToAdd);
-            console.log("PUT status:", data.status);
-            console.log("PUT response:", data.response);
-            return {
-                "response": data,
-                "status": data.status,
-                "updated": true
-            }
-        } else {
-            const data = await uploadToGitHub(pathName, dataToAdd);
-            console.log("else PUT status:", data.status);
-            console.log("PUT response:", data.response);
-            return {
-                "response": data,
-                "status": data.status,
-                "message": "File does not exist"
-            };
-        }
-    } catch (error) {
-        return {
-            "response": error,
-            "status": 500
-        };
-    }
+async function addContentToGitHub(code, questionTitle, questionContent, language, uploadTicket, pageUrl = null) {
+    const payload = await buildUploadPayload(code, questionTitle, questionContent, language);
+    if (pageUrl && location.href !== pageUrl) return { ok: false, error: { code: 'PAGE_CHANGED', message: 'The page changed before saving. Click the extension again on the problem you want to save.' } };
+    return chrome.runtime.sendMessage({ type: 'UPLOAD_PROBLEM', payload, uploadTicket });
 }
 
 function formatArticleComponent(title, articleComponent) {
@@ -415,15 +341,19 @@ function getCategory() {
 // - formatting markdown
 // - uploading to GitHub
 // - showing toast messages
-async function processAndUpload(code, source = 'auto') {
+async function processAndUpload(code, source = 'auto', uploadTicket = null, pageUrl = null) {
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    const deadline = setTimeout(cancel, 10000);
+    globalThis.addEventListener?.('pagehide', cancel, { once: true });
     try {
-        console.log("Step 1: preparing data");
         // Wait for required DOM elements
-        const questionTitle = await waitForElement('querySelector', 'h1');
-        const articleComponent = await waitForElement('querySelector', 'main.my-article-component-container');
+        const questionTitle = await waitForElement('querySelector', 'h1', controller.signal);
+        const articleComponent = await waitForElement('querySelector', 'main.my-article-component-container', controller.signal);
         // Convert problem description into markdown
         const markdownContent = formatArticleComponent(questionTitle.textContent, articleComponent);
-        const languageElement = await waitForElement('querySelector', '.selected-language');
+        const languageElement = await waitForElement('querySelector', '.selected-language', controller.signal);
+        clearTimeout(deadline);
 
         // Extract and normalize title for file path
         const title = questionTitle.textContent.replaceAll(' ', '-').toLowerCase().trim();
@@ -431,36 +361,41 @@ async function processAndUpload(code, source = 'auto') {
         if (!code) {
             showToast('No code found — saving problem only', '#f39c12');
         }
-        console.log("Generated content:", markdownContent);
 
         // Upload everything to GitHub
-        const conentAdded = await addContentToGitHub(code, title, markdownContent, languageElement.textContent);
+        const uploadResult = await addContentToGitHub(code, title, markdownContent, languageElement.textContent, uploadTicket, pageUrl);
         // Handle success response
-        if (conentAdded.status === 201 || conentAdded.status === 200) {
+        if (uploadResult?.ok) {
             let message;
 
             if (source === 'manual') {
-                message = conentAdded.updated ? 'Updated via click' : 'Saved via click';
+                message = uploadResult.updated ? 'Updated via click' : 'Saved via click';
             } else {
-                message = conentAdded.updated
+                message = uploadResult.updated
                     ? 'Successfully updated in GitHub'
                     : 'Successfully added to GitHub';
             }
 
             showToast(message, '#007bff');
         } else {
-            showToast('Failed to add to GitHub', '#e74c3c');
+            const actionable = ['NOT_CONFIGURED', 'VAULT_LOCKED'].includes(uploadResult?.error?.code);
+            const message = uploadResult?.error?.message || 'Failed to add to GitHub';
+            showToast(message, '#e74c3c', actionable ? 10000 : 3000,
+                actionable ? () => chrome.runtime.sendMessage({ type: 'OPEN_SETTINGS' }) : null);
         }
 
     } catch (error) {
-        console.error('processAndUpload error:', error);
 
-        const failMessage =
+        const failMessage = error?.code === 'PAGE_NOT_READY'
+            ? 'Problem details did not load. Try again when the NeetCode page finishes loading.' :
             source === 'manual'
                 ? 'Manual save failed'
                 : 'Failed to add to GitHub';
 
         showToast(failMessage, '#e74c3c');
+    } finally {
+        clearTimeout(deadline);
+        globalThis.removeEventListener?.('pagehide', cancel);
     }
 }
 
@@ -480,25 +415,36 @@ function getCode() {
 }
 
 
-// Listener becomes very thin and clean
-chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
-    console.log("Received message:", message);
-
-    // Case 1: Code comes from extension (auto capture)
-    if (message.type === 'CODE_DATA' && message.code && message.title) {
-        await processAndUpload(message.code, 'auto');
-    }
-
-    // Case 2: Manual trigger (pull from Monaco editor)
-    else if (message.type === 'MANUAL_TRIGGER') {
-        // let code = window.monaco?.editor?.getModels()[0]?.getValue();
-        let code = getCode();
-        if (!code) {
-            console.log("No code found in DOM");
-            code = ""; // explicit fallback
+// Only the extension worker may trigger extraction. No credential messages here.
+// Declarative loading and toolbar recovery may both run; install one receiver.
+if (globalThis.__neetcodeTrackingReceiverId !== chrome.runtime.id) {
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+        if (sender.id !== chrome.runtime.id) return false;
+        if (message.type === 'PAGE_READY') {
+            sendResponse?.({ ready: true });
+            return false;
+        } else if (message.type === 'SAVE_BLOCKED') {
+            showToast(message.error?.message || 'Open settings before saving.', '#e74c3c', 10000,
+                () => chrome.runtime.sendMessage({ type: 'OPEN_SETTINGS' }));
+        } else if (message.type === 'CODE_DATA' && typeof message.code === 'string' && message.title) {
+            const pageUrl = location.href;
+            if (pageUrl !== message.pageUrl) {
+                sendResponse?.({ accepted: false, reason: 'PAGE_CHANGED' });
+                return false;
+            }
+            void processAndUpload(message.code, 'auto', message.uploadTicket, pageUrl);
+        } else if (message.type === 'MANUAL_TRIGGER') {
+            if (message.pageUrl !== location.href) {
+                sendResponse?.({ accepted: false, reason: 'PAGE_CHANGED' });
+                return false;
+            }
+            void processAndUpload(getCode() || '', 'manual', message.uploadTicket, message.pageUrl);
+        } else {
+            return false;
         }
-        console.log("Manual trigger fired");
-        // console.log("Extracted code:", code);
-        await processAndUpload(code, 'manual');
-    }
-});
+        // Acknowledge delivery separately from the eventual upload result/toast.
+        sendResponse?.({ accepted: true });
+        return false;
+    });
+    globalThis.__neetcodeTrackingReceiverId = chrome.runtime.id;
+}

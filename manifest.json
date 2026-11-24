@@ -1,8 +1,12 @@
 {
     "manifest_version": 3,
-    "name": "Neetcode Tracking Extension",
-    "version": "1.1.0",
-    "description": "A Chrome extension to track and write your Neetcode solutions to GitHub repository",
+    "minimum_chrome_version": "157",
+    "content_security_policy": {
+      "extension_pages": "script-src 'self'; object-src 'self'; form-action 'none'; base-uri 'none'"
+    },
+    "name": "NeetCode Tracking 2.0",
+    "version": "2.0.0",
+    "description": "Save NeetCode solutions and problem notes to GitHub with encrypted token storage and PIN-assisted unlock.",
     "icons": {
         "16": "icon.png",
         "32": "icon.png",
@@ -17,23 +21,20 @@
     ],
     "host_permissions": [
       "https://api.github.com/*",
-      "https://neetcode.io/*",
-      "https://us-central1-neetcode-dd170.cloudfunctions.net/*"
+      "https://neetcode.io/*"
     ],
     "content_scripts": [
         {
           "matches": ["https://neetcode.io/*"],
-          "js": ["config.js", "content-script.js"],
+          "js": ["content-script.js"],
           "run_at": "document_start",
-          "all_frames": true
+          "all_frames": false
         }
     ],
-    "web_accessible_resources": [
-      {
-        "resources": ["config.js"],
-        "matches": ["<all_urls>"]
-      }
-    ],
+    "options_ui": {
+      "page": "options.html",
+      "open_in_tab": true
+    },
     "background": {
       "service_worker": "background.js"
     },
