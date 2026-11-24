@@ -70,7 +70,7 @@ Data Structures & Algorithms/    # or System Design/
     └── problem.md
 ```
 
-Supported language mappings are Python (`.py`), JavaScript (`.js`), Java (`.java`), C++ (`.cpp`), and the existing C# mapping (`.c`). Unrecognized languages currently fall back to `.py`.
+Supported language mappings are Python (`.py`), JavaScript (`.js`), TypeScript (`.ts`), Java (`.java`), C++ (`.cpp`), C (`.c`), C# (`.cs`), Go (`.go`), Rust (`.rs`), Kotlin (`.kt`), Swift (`.swift`), Ruby (`.rb`), PHP (`.php`), Scala (`.scala`), Dart (`.dart`), Racket (`.rkt`), Elixir (`.ex`), Erlang (`.erl`), F# (`.fs`), R (`.r`), Perl (`.pl`), Haskell (`.hs`), Lua (`.lua`), Bash/Shell (`.sh`), and SQL (`.sql`). Labels are case-insensitive and trimmed. An unrecognized language with nonempty code stops the save without writing files.
 
 The first save creates `problem.md`. Later saves update the solution and leave the existing Markdown file untouched, preserving your Notes, tags, creation date, and description. Delete `problem.md` in your repository if you want the next save to regenerate it.
 

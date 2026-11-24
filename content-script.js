@@ -116,18 +116,44 @@ function showToast(message, color, duration = 3000, action = null) {
 }
 
 function getLanguage(language) {
-    if (language === 'Python') {
-        return 'py';
-    } else if (language === 'Java') {
-        return 'java';
-    } else if (language === 'C++') {
-        return 'cpp';
-    } else if (language === 'C#') {
-        return 'c';
-    } else if (language === 'JavaScript') {
-        return 'js';
-    }
-    return 'py';
+    const extensions = {
+        python: 'py',
+        python3: 'py',
+        javascript: 'js',
+        typescript: 'ts',
+        java: 'java',
+        'c++': 'cpp',
+        cpp: 'cpp',
+        c: 'c',
+        'c#': 'cs',
+        csharp: 'cs',
+        go: 'go',
+        golang: 'go',
+        rust: 'rs',
+        kotlin: 'kt',
+        swift: 'swift',
+        ruby: 'rb',
+        php: 'php',
+        scala: 'scala',
+        dart: 'dart',
+        racket: 'rkt',
+        elixir: 'ex',
+        erlang: 'erl',
+        'f#': 'fs',
+        fsharp: 'fs',
+        r: 'r',
+        perl: 'pl',
+        haskell: 'hs',
+        lua: 'lua',
+        bash: 'sh',
+        shell: 'sh',
+        sql: 'sql',
+    };
+    return typeof language === 'string'
+        ? Object.hasOwn(extensions, language.trim().toLowerCase())
+            ? extensions[language.trim().toLowerCase()]
+            : null
+        : null;
 }
 
 async function waitForTopics() {
@@ -164,7 +190,9 @@ ${questionContent}
 
     const files = [];
     if (code && code.trim()) {
-        files.push({ kind: 'solution', extension: getLanguage(language), content: code });
+        const extension = getLanguage(language);
+        if (!extension) throw Object.assign(new Error(), { code: 'UNSUPPORTED_LANGUAGE' });
+        files.push({ kind: 'solution', extension, content: code });
     }
     files.push({ kind: 'problem', extension: 'md', content: enrichedMarkdown });
     return { category, title, date, files };
@@ -447,11 +475,13 @@ async function processAndUpload(code, source = 'auto', uploadTicket = null, page
         }
     } catch (error) {
         const failMessage =
-            error?.code === 'PAGE_NOT_READY'
-                ? 'Problem details did not load. Try again when the NeetCode page finishes loading.'
-                : source === 'manual'
-                  ? 'Manual save failed'
-                  : 'Failed to add to GitHub';
+            error?.code === 'UNSUPPORTED_LANGUAGE'
+                ? 'This language is not supported. No files were saved.'
+                : error?.code === 'PAGE_NOT_READY'
+                  ? 'Problem details did not load. Try again when the NeetCode page finishes loading.'
+                  : source === 'manual'
+                    ? 'Manual save failed'
+                    : 'Failed to add to GitHub';
 
         showToast(failMessage, '#e74c3c');
     } finally {

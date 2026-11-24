@@ -510,7 +510,33 @@ function validateUploadPayload(payload) {
             (file.kind === 'problem'
                 ? file.extension !== 'md'
                 : file.kind !== 'solution' ||
-                  !['py', 'java', 'cpp', 'c', 'js'].includes(file.extension))
+                  ![
+                      'py',
+                      'java',
+                      'cpp',
+                      'c',
+                      'cs',
+                      'js',
+                      'ts',
+                      'go',
+                      'rs',
+                      'kt',
+                      'swift',
+                      'rb',
+                      'php',
+                      'scala',
+                      'dart',
+                      'rkt',
+                      'ex',
+                      'erl',
+                      'fs',
+                      'r',
+                      'pl',
+                      'hs',
+                      'lua',
+                      'sh',
+                      'sql',
+                  ].includes(file.extension))
         ) {
             fail('INVALID_UPLOAD');
         }

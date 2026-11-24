@@ -281,6 +281,21 @@ test('readiness probe is side-effect free and reinjection registers only one rec
     assert.equal(f.context.toasts.length, 0);
 });
 
+test('unsupported language stops saves instead of mislabeling the solution as Python', async () => {
+    const f = fixture({ ok: true });
+    const original = f.context.document.querySelector;
+    f.context.document.querySelector = selector =>
+        selector === '.selected-language'
+            ? { textContent: 'Unknown language' }
+            : original(selector);
+    await f.context.processAndUpload('synthetic code', 'manual');
+    assert.equal(f.messages.length, 0);
+    assert.equal(
+        f.context.toasts.at(-1).message,
+        'This language is not supported. No files were saved.',
+    );
+});
+
 test('failed complete-model capture stops manual saves without uploading partial DOM code', async () => {
     const f = fixture({ ok: false, error: { code: 'EDITOR_UNAVAILABLE' } });
     await f.context.saveManual({

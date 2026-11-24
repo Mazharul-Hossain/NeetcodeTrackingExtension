@@ -7,13 +7,45 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { contentFixture } = require('./helpers/extension-harness.cjs');
 
-test('language mapping and fallback remain stable', () => {
+test('language mapping covers supported languages and rejects unknown labels', () => {
     const f = contentFixture();
-    assert.deepEqual(
-        ['Python', 'Java', 'C++', 'C#', 'JavaScript', 'unknown'].map(x => f.context.getLanguage(x)),
-        ['py', 'java', 'cpp', 'c', 'js', 'py'],
-    );
+    const expected = {
+        Python: 'py',
+        Python3: 'py',
+        Java: 'java',
+        'C++': 'cpp',
+        C: 'c',
+        'C#': 'cs',
+        JavaScript: 'js',
+        TypeScript: 'ts',
+        Go: 'go',
+        Rust: 'rs',
+        Kotlin: 'kt',
+        Swift: 'swift',
+        Ruby: 'rb',
+        PHP: 'php',
+        Scala: 'scala',
+        Dart: 'dart',
+        Racket: 'rkt',
+        Elixir: 'ex',
+        Erlang: 'erl',
+        'F#': 'fs',
+        R: 'r',
+        Perl: 'pl',
+        Haskell: 'hs',
+        Lua: 'lua',
+        Bash: 'sh',
+        SQL: 'sql',
+    };
+    for (const [label, extension] of Object.entries(expected)) {
+        assert.equal(f.context.getLanguage(label), extension);
+        assert.equal(f.context.getLanguage(` ${label.toUpperCase()} `), extension);
+    }
+    for (const label of ['unknown', '', '__proto__', 'constructor', undefined]) {
+        assert.equal(f.context.getLanguage(label), null);
+    }
 });
+
 test('category ignores body/navigation text and uses only explicit routes or breadcrumb links', () => {
     let links = [];
     const document = {

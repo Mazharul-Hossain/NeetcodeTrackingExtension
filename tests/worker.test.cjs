@@ -595,3 +595,60 @@ test('repeat saves preserve existing Markdown notes, front matter and creation d
     assert.equal(f.calls.at(-1)[1].method, 'GET');
 });
 
+test('worker accepts every mapped extension and rejects unknown or unsafe file types', () => {
+    const { contentFixture } = require('./helpers/extension-harness.cjs');
+    const content = contentFixture();
+    const f = workerFixture();
+    const labels = [
+        'Python',
+        'JavaScript',
+        'TypeScript',
+        'Java',
+        'C++',
+        'C',
+        'C#',
+        'Go',
+        'Rust',
+        'Kotlin',
+        'Swift',
+        'Ruby',
+        'PHP',
+        'Scala',
+        'Dart',
+        'Racket',
+        'Elixir',
+        'Erlang',
+        'F#',
+        'R',
+        'Perl',
+        'Haskell',
+        'Lua',
+        'Bash',
+        'SQL',
+    ];
+    for (const label of labels) {
+        const extension = content.context.getLanguage(label);
+        assert.doesNotThrow(() =>
+            f.context.validateUploadPayload({
+                ...payload,
+                files: [
+                    { kind: 'solution', extension, content: 'synthetic code' },
+                    { kind: 'problem', extension: 'md', content: 'synthetic problem' },
+                ],
+            }),
+        );
+    }
+    for (const extension of ['unknown', 'exe', '../py', null]) {
+        assert.throws(
+            () =>
+                f.context.validateUploadPayload({
+                    ...payload,
+                    files: [
+                        { kind: 'solution', extension, content: 'synthetic code' },
+                        { kind: 'problem', extension: 'md', content: 'synthetic problem' },
+                    ],
+                }),
+            error => error.publicCode === 'INVALID_UPLOAD',
+        );
+    }
+});
