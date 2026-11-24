@@ -9,7 +9,7 @@
  *     `-- action.onClicked: send MANUAL_TRIGGER to content-script.js
  *
  * Purpose: own encrypted settings, PIN-unlock proofs, trusted session storage,
- * GitHub requests and save triggers. Content scripts only extract page data.
+ * atomic GitHub saves and save triggers. Content scripts only extract page data.
  *
  * Agent skills: no additional Codex skill required. Relevant knowledge: Chrome
  * extension service-worker lifecycle, webRequest events, and tab messaging.
@@ -52,6 +52,8 @@ const ERROR_MESSAGES = {
     STORAGE_UNAVAILABLE: 'Settings storage is unavailable. Reload the extension and try again.',
     AUTH_FAILED: 'GitHub rejected the token. Check whether it expired or was revoked.',
     ACCESS_DENIED: 'GitHub denied access. Check repository permissions.',
+    REPO_EMPTY:
+        'Initialize the GitHub repository with a README or another commit, then save again.',
     REPO_NOT_FOUND: 'The repository is missing or inaccessible to this token.',
     CONFLICT: 'The repository changed during this save. Try saving again.',
     GITHUB_VALIDATION: 'GitHub could not accept this file or committer information.',
@@ -77,7 +79,6 @@ function publicError(error) {
     return {
         ok: false,
         error: { code, message: ERROR_MESSAGES[code] },
-        ...(error?.savedFiles ? { files: error.savedFiles } : {}),
     };
 }
 
@@ -553,7 +554,7 @@ function checkRevision(revision) {
     if (revision !== settingsRevision) fail('SETTINGS_CHANGED');
 }
 
-async function githubRequest(settings, endpointPath, init, revision) {
+async function githubRequest(settings, endpointPath, init, revision, refUpdate = false) {
     checkRevision(revision);
     const controller = new AbortController();
     activeRequests.add(controller);
@@ -586,7 +587,7 @@ async function githubRequest(settings, endpointPath, init, revision) {
         checkRevision(revision);
         if (response.ok || response.status === 404) {
             const data =
-                response.ok && init.method === 'GET'
+                response.ok && init.method !== 'PATCH'
                     ? await Promise.race([response.json(), aborted])
                     : undefined;
             checkRevision(revision);
@@ -605,7 +606,7 @@ async function githubRequest(settings, endpointPath, init, revision) {
                 401: 'AUTH_FAILED',
                 403: 'ACCESS_DENIED',
                 409: 'CONFLICT',
-                422: 'GITHUB_VALIDATION',
+                422: refUpdate ? 'CONFLICT' : 'GITHUB_VALIDATION',
             }[response.status] || 'GITHUB_ERROR',
         );
     } catch (error) {
@@ -645,35 +646,15 @@ function encodeUtf8Base64(content) {
     return btoa(binary);
 }
 
-async function upsertGitHubFile(settings, payload, file, revision) {
-    const path = [payload.category, payload.title, `${file.kind}.${file.extension}`]
-        .map(encodeURIComponent)
-        .join('/');
-    const endpoint = `${repositoryPath(settings)}/contents/${path}`;
-    const existing = await githubRequest(settings, endpoint, { method: 'GET' }, revision);
-    if (existing.status === 200 && file.kind === 'problem') {
-        return { kind: file.kind, status: 200, updated: false, skipped: true };
+function githubSha(response, expectedStatus = 201) {
+    if (
+        response.status !== expectedStatus ||
+        typeof response.data?.sha !== 'string' ||
+        !response.data.sha
+    ) {
+        fail(response.status === 404 ? 'REPO_NOT_FOUND' : 'GITHUB_ERROR');
     }
-    const body = {
-        message: `Added ${payload.title} on ${payload.date}`,
-        committer: { name: settings.committerName, email: settings.committerEmail },
-        content: encodeUtf8Base64(file.content),
-    };
-    if (existing.status !== 404) {
-        const data = existing.data;
-        if (typeof data.sha !== 'string' || !data.sha) fail('GITHUB_ERROR');
-        body.sha = data.sha;
-    }
-    const saved = await githubRequest(
-        settings,
-        endpoint,
-        { method: 'PUT', body: JSON.stringify(body) },
-        revision,
-    );
-    if (![200, 201].includes(saved.status)) {
-        fail(saved.status === 404 ? 'REPO_NOT_FOUND' : 'GITHUB_ERROR');
-    }
-    return { kind: file.kind, status: saved.status, updated: Boolean(body.sha) };
+    return response.data.sha;
 }
 
 async function uploadProblem(payload, revision, uploadTicket, sender) {
@@ -681,17 +662,78 @@ async function uploadProblem(payload, revision, uploadTicket, sender) {
     const settings = await getUnlockedSettings();
     checkRevision(revision);
     consumeUploadTicket(uploadTicket, sender, settings);
-    const files = [];
+    const repo = repositoryPath(settings);
+    const request = (path, method = 'GET', body, refUpdate = false) =>
+        githubRequest(
+            settings,
+            `${repo}${path}`,
+            { method, ...(body ? { body: JSON.stringify(body) } : {}) },
+            revision,
+            refUpdate,
+        );
+    const repository = await request('');
+    if (repository.status === 404) fail('REPO_NOT_FOUND');
+    const branch = repository.data?.default_branch;
+    if (typeof branch !== 'string' || !branch) fail('GITHUB_ERROR');
+    const refPath = `heads/${encodeURIComponent(branch)}`;
+    let reference;
     try {
-        for (const kind of ['solution', 'problem']) {
-            const file = payload.files.find(entry => entry.kind === kind);
-            if (file) files.push(await upsertGitHubFile(settings, payload, file, revision));
-        }
+        reference = await request(`/git/ref/${refPath}`);
     } catch (error) {
-        error.savedFiles = files;
+        // GitHub may report an empty Git database as 409 instead of a missing ref.
+        if (error.publicCode === 'CONFLICT' && repository.data.size === 0) fail('REPO_EMPTY');
         throw error;
     }
-    return { ok: true, updated: files.some(file => file.updated), files };
+    if (reference.status === 404) fail(repository.data.size === 0 ? 'REPO_EMPTY' : 'CONFLICT');
+    const head = reference.data?.object?.sha;
+    if (typeof head !== 'string' || !head) fail('GITHUB_ERROR');
+    const parent = await request(`/git/commits/${encodeURIComponent(head)}`);
+    const baseTree = parent.data?.tree?.sha;
+    if (parent.status !== 200 || typeof baseTree !== 'string' || !baseTree) fail('GITHUB_ERROR');
+    const files = [];
+    const changes = [];
+    // All existence checks use the same immutable commit as the new commit's parent.
+    for (const file of payload.files) {
+        const path = `${payload.category}/${payload.title}/${file.kind}.${file.extension}`;
+        const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+        const existing = await request(`/contents/${encodedPath}?ref=${encodeURIComponent(head)}`);
+        const present = existing.status === 200;
+        if (present && existing.data?.type !== 'file') fail('CONFLICT');
+        if (existing.status !== 404 && !present) fail('GITHUB_ERROR');
+        const skipped = present && file.kind === 'problem';
+        files.push({ kind: file.kind, updated: present && !skipped, skipped });
+        if (!skipped) changes.push({ file, path });
+    }
+    const updated = files.some(file => file.updated);
+    if (!changes.length) return { ok: true, updated, files };
+    const tree = [];
+    for (const { file, path } of changes) {
+        const blob = await request('/git/blobs', 'POST', {
+            encoding: 'base64',
+            content: encodeUtf8Base64(file.content),
+        });
+        tree.push({ path, mode: '100644', type: 'blob', sha: githubSha(blob) });
+    }
+    const newTree = githubSha(await request('/git/trees', 'POST', { base_tree: baseTree, tree }));
+    const identity = { name: settings.committerName, email: settings.committerEmail };
+    const commit = githubSha(
+        await request('/git/commits', 'POST', {
+            message: `${updated ? 'Updated' : 'Added'} ${payload.title} on ${payload.date}`,
+            tree: newTree,
+            parents: [head],
+            author: identity,
+            committer: identity,
+        }),
+    );
+    // Git objects are unreachable until this single non-forced branch update succeeds.
+    const published = await request(
+        `/git/refs/${refPath}`,
+        'PATCH',
+        { sha: commit, force: false },
+        true,
+    );
+    if (published.status !== 200) fail(published.status === 404 ? 'CONFLICT' : 'GITHUB_ERROR');
+    return { ok: true, updated, files };
 }
 
 // Runs in the page world without credentials or extension state. Never scrape rendered lines.

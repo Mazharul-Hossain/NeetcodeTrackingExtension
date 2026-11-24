@@ -7,7 +7,7 @@ Version **2.0.0** adds an extension settings page, encrypted GitHub token storag
 ## Features
 
 - **One-click saves:** save the current solution and formatted problem description from a NeetCode problem page.
-- **GitHub updates:** create or update files on your repository's default branch.
+- **GitHub updates:** save all changed files together in one commit on your repository's default branch.
 - **Problem notes:** include topic tags, a UTC creation date, and a Notes section in each problem's Markdown file.
 - **Protected credentials:** encrypt your token on this device and unlock it with a compatible passkey provider, including supported Windows Hello PIN setups.
 - **Automatic reconnection:** reconnect already-open NeetCode tabs after extension updates without refreshing the page or losing editor contents.
@@ -16,7 +16,7 @@ Version **2.0.0** adds an extension settings page, encrypted GitHub token storag
 
 - **Google Chrome 157 or newer.**
 - **A compatible passkey provider** supporting WebAuthn PRF and user verification. Windows Hello PIN has been verified on Chrome 157 for Windows ARM64. Compatibility with other providers and platforms has not been verified.
-- **A GitHub repository** and a fine-grained personal access token restricted to that repository, with **Contents: Read and write** permission.
+- **A GitHub repository with at least one commit** (for example, an initial README) and a fine-grained personal access token restricted to that repository, with **Contents: Read and write** permission.
 
 ## Installation
 
@@ -33,7 +33,7 @@ When updating an unpacked installation, keep the project in the same folder and 
 
 ## Connect your GitHub repository
 
-1. Create or choose a repository for your solutions.
+1. Create or choose a repository for your solutions. Initialize a new repository with a README or another commit before saving problems.
 2. Open [GitHub's fine-grained token settings](https://github.com/settings/personal-access-tokens) and create a token. Select only your intended repository, grant **Contents: Read and write**, and choose an expiration. Organization repositories may require approval.
 3. Enter the following in the extension's settings:
 
@@ -72,13 +72,15 @@ Data Structures & Algorithms/    # or System Design/
 
 Supported language mappings are Python (`.py`), JavaScript (`.js`), TypeScript (`.ts`), Java (`.java`), C++ (`.cpp`), C (`.c`), C# (`.cs`), Go (`.go`), Rust (`.rs`), Kotlin (`.kt`), Swift (`.swift`), Ruby (`.rb`), PHP (`.php`), Scala (`.scala`), Dart (`.dart`), Racket (`.rkt`), Elixir (`.ex`), Erlang (`.erl`), F# (`.fs`), R (`.r`), Perl (`.pl`), Haskell (`.hs`), Lua (`.lua`), Bash/Shell (`.sh`), and SQL (`.sql`). Labels are case-insensitive and trimmed. An unrecognized language with nonempty code stops the save without writing files.
 
+Saves create blobs, a tree based on the current branch snapshot, and one commit through GitHub's Git Data API. A single non-forced ref update publishes all changed files together. If the branch changes concurrently, the save fails safely; retry to use the latest snapshot. Commit messages distinguish additions from updates.
+
 The first save creates `problem.md`. Later saves update the solution and leave the existing Markdown file untouched, preserving your Notes, tags, creation date, and description. Delete `problem.md` in your repository if you want the next save to regenerate it.
 
 Category detection uses an explicit `system-design` URL path segment or a same-origin System Design route linked from a breadcrumb. Other problems use `Data Structures & Algorithms`; navigation, footer, and description text do not determine the category. Existing files saved under an incorrect category or extension are not moved automatically.
 
 ### Automatic saves
 
-Automatic capture runs after NeetCode's own GitHub-sync request completes. This requires NeetCode's built-in GitHub integration to be configured; running or submitting code alone does not guarantee this trigger. The toolbar save works independently of that integration.
+Automatic capture runs only after NeetCode's own GitHub-sync request completes with a successful HTTP status (2xx). Failed sync responses discard the captured submission. This requires NeetCode's built-in GitHub integration to be configured; running or submitting code alone does not guarantee this trigger. The toolbar save works independently of that integration.
 
 ## Unlocking and security
 
@@ -115,7 +117,9 @@ Connection settings are stored locally, not synced across devices. The extension
 | A PIN prompt was cancelled or timed out | Retry from Options and keep the settings tab visible while completing the prompt. |
 | The extension cannot connect to the page | Check Chrome's site-access setting for the extension on `neetcode.io`, then retry. Recovery errors appear at the top of Options. |
 | GitHub rejects a save | Check token expiration, repository selection, Contents write permission, organization approval, committer details, and branch rules. |
-| A save cannot be confirmed | Check your repository before retrying. An earlier file may have been committed even if a later file failed. |
+| A save cannot be confirmed | Check your repository before retrying. If the final confirmation was lost, the complete save may already be committed. |
+| The repository changed during this save | Retry to save against the latest branch snapshot. The extension never forces a branch update. |
+| Initialize the GitHub repository | Add a README or another initial commit, then retry. Atomic saves require an existing branch. |
 | Automatic capture does not run | Check NeetCode's built-in GitHub integration, or use the toolbar save. |
 | Could not read the complete editor code | Wait for the editor to finish loading, then retry. No files are saved if the editor is unavailable or ambiguous. |
 | Problem details did not load | Wait for the problem page to finish loading, then retry. Missing optional topic tags do not prevent saving. |

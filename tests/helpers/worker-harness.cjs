@@ -79,9 +79,10 @@ function workerFixture(overrides = {}) {
         },
     };
     const calls = [];
+    const git = require('./git-repository.cjs').gitRepository();
     const fetch = async (...args) => {
         calls.push(args);
-        return overrides.fetch ? overrides.fetch(...args) : response(200, { login: 'test-owner' });
+        return overrides.fetch ? overrides.fetch(...args) : git.fetch(...args);
     };
     const script = loadScript(
         'background.js',

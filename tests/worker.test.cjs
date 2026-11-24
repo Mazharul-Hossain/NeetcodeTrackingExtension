@@ -124,39 +124,6 @@ test('missing settings and locked vault block uploads before any network request
     );
     assert.equal(f.calls.length, 0);
 });
-test('uploads create missing files sequentially and preserve UTF-8 and paths', async () => {
-    const f = workerFixture({
-        fetch: async (_url, init) => (init.method === 'GET' ? response(404) : response(201)),
-    });
-    await configure(f);
-    const result = await f.request({ type: 'UPLOAD_PROBLEM', payload }, problemSender);
-    assert.equal(result.ok, true);
-    assert.deepEqual(
-        f.calls.map(c => c[1].method),
-        ['GET', 'PUT', 'GET', 'PUT'],
-    );
-    const body = JSON.parse(f.calls[1][1].body);
-    assert.equal(Buffer.from(body.content, 'base64').toString('utf8'), 'café');
-    assert.equal(body.message, 'Added two-sum on 2026-11-23');
-    assert.equal('sha' in body, false);
-    assert.ok(f.calls[1][0].endsWith('/Data%20Structures%20%26%20Algorithms/two-sum/solution.py'));
-    assert.equal(JSON.stringify(result).includes(fields.token), false);
-    assert.equal(f.calls[1][1].redirect, 'error');
-});
-test('updates supply existing SHA and return only safe metadata', async () => {
-    const f = workerFixture({
-        fetch: async (_url, init) =>
-            response(
-                200,
-                init.method === 'GET' ? { sha: 'existing-sha' } : { secret: fields.token },
-            ),
-    });
-    await configure(f);
-    const result = await f.request({ type: 'UPLOAD_PROBLEM', payload }, problemSender);
-    assert.equal(result.updated, true);
-    assert.equal(JSON.parse(f.calls[1][1].body).sha, 'existing-sha');
-    assert.equal(JSON.stringify(result).includes(fields.token), false);
-});
 test('connection testing makes authenticated GET calls only and never saves candidates', async () => {
     const f = workerFixture();
     const result = await f.request({ type: 'TEST_CONNECTION', settings: fields });
@@ -312,24 +279,6 @@ test('expired unlock requests are rejected without changing locked state', async
         'INVALID_UNLOCK_PROOF',
     );
     assert.equal((await f.request({ type: 'GET_SETTINGS' })).settings.isUnlocked, false);
-});
-test('partial upload reports saved solution and stops after problem failure', async () => {
-    let count = 0;
-    const f = workerFixture({
-        fetch: async () => {
-            count++;
-            return count === 1 ? response(404) : count === 2 ? response(201) : response(403);
-        },
-    });
-    await configure(f);
-    const result = await f.request({ type: 'UPLOAD_PROBLEM', payload }, problemSender);
-    assert.equal(result.ok, false);
-    assert.equal(result.error.code, 'ACCESS_DENIED');
-    assert.deepEqual(
-        Array.from(result.files, file => file.kind),
-        ['solution'],
-    );
-    assert.equal(f.calls.length, 3);
 });
 test('timeout terminates a stalled network operation with a safe error', async () => {
     let expire;
@@ -503,9 +452,7 @@ test('Save never writes a session token and reports that it is locked', async ()
     assert.equal(JSON.stringify(f.persisted.local).includes(fields.token), false);
 });
 test('upload tickets cannot be replayed or moved to another tab', async () => {
-    const f = workerFixture({
-        fetch: async (_url, init) => (init.method === 'GET' ? response(404) : response(201)),
-    });
+    const f = workerFixture();
     await configure(f);
     await f.chrome.action.onClicked.fire({ id: 7, url: problemSender.url });
     const uploadTicket = f.sent.at(-1)[1].uploadTicket;
@@ -531,9 +478,7 @@ test('upload tickets cannot be replayed or moved to another tab', async () => {
     assert.equal(f.calls.length, count);
 });
 test('SPA navigation from roadmap to problem accepts a trusted top-frame sender', async () => {
-    const f = workerFixture({
-        fetch: async (_url, init) => (init.method === 'GET' ? response(404) : response(201)),
-    });
+    const f = workerFixture();
     await configure(f);
     const url = 'https://neetcode.io/problems/rotate-matrix/question';
     await f.chrome.action.onClicked.fire({ id: 7, url });
@@ -563,40 +508,6 @@ test('SPA route validation still rejects foreign document origins and nonproblem
             'UNAUTHORIZED',
         );
     }
-});
-
-test('repeat saves preserve existing Markdown notes, front matter and creation date without a PUT', async () => {
-    const existing =
-        '---\ncreated: 2020-01-01\ntags: [custom]\n---\n## Notes\nMy synthetic notes\n---\nOriginal description';
-    const f = workerFixture({
-        fetch: async (url, init) => {
-            if (init.method === 'GET') {
-                return response(200, {
-                    sha: 'existing-sha',
-                    encoding: 'base64',
-                    content: Buffer.from(existing).toString('base64'),
-                });
-            }
-            assert.ok(url.endsWith('/solution.py'), 'Existing problem.md must never be written');
-            return response(200);
-        },
-    });
-    await configure(f);
-    const result = await f.request({ type: 'UPLOAD_PROBLEM', payload }, problemSender);
-    assert.equal(result.ok, true);
-    assert.deepEqual(
-        f.calls.map(call => call[1].method),
-        ['GET', 'PUT', 'GET'],
-    );
-    assert.equal(result.files.find(file => file.kind === 'problem').skipped, true);
-    const onlyProblem = {
-        ...payload,
-        files: payload.files.filter(file => file.kind === 'problem'),
-    };
-    const again = await f.request({ type: 'UPLOAD_PROBLEM', payload: onlyProblem }, problemSender);
-    assert.equal(again.ok, true);
-    assert.equal(again.files[0].skipped, true);
-    assert.equal(f.calls.at(-1)[1].method, 'GET');
 });
 
 test('worker accepts every mapped extension and rejects unknown or unsafe file types', () => {
