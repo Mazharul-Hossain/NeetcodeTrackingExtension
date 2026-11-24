@@ -77,7 +77,7 @@ test('uploads optional solution and exact enriched problem data in one credentia
     );
     assert.equal(
         message.payload.files[1].content,
-        '---\ntags:\n - Arrays\n - Two-Pointers\n\ncreated: 2026-11-23\n\n---\n\n## Notes\n\n<!-- Add your thoughts, edge cases, mistakes -->\n\n---\n\n# **Two Sum**\n    ',
+        '---\ntags:\n - Arrays\n - Two-Pointers\n\ncreated: 2026-11-23\n\n---\n\n## Notes\n\n<!-- Add your thoughts, edge cases, mistakes -->\n\n---\n\n# **Two Sum**\n',
     );
     assert.equal('token' in message.payload, false);
     assert.equal(f.context.toasts[0].message, 'Saved via click');

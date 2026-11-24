@@ -219,8 +219,8 @@ created: ${date}
 
 ---
 
-${questionContent}
-    `;
+${questionContent.trim()}
+`;
 
     const files = [];
     if (code && code.trim()) {
@@ -329,28 +329,40 @@ function formatArticleComponent(title, articleComponent) {
                     return divContent;
                 }
 
-                case 'ul': {
-                    let ulContent = '';
-                    const listItems = node.querySelectorAll('li');
-                    for (const li of listItems) {
-                        const li_text = li.textContent.trim();
-                        // Detect math-like patterns
-                        if (/[\^<>=]/.test(li_text)) {
-                            ulContent += `- $${li_text}$\n`;
-                        } else {
-                            ulContent += `- ${li_text}\n`;
-                        }
-                    }
-                    return ulContent + '\n';
-                }
-
+                case 'ul':
                 case 'ol': {
-                    let olContent = '';
-                    const orderedItems = node.querySelectorAll('li');
-                    for (let i = 0; i < orderedItems.length; i++) {
-                        olContent += i + 1 + '. ' + orderedItems[i].textContent.trim() + '\n';
-                    }
-                    return olContent + '\n';
+                    const items = Array.from(node.childNodes).filter(
+                        child =>
+                            child.nodeType === Node.ELEMENT_NODE &&
+                            child.tagName.toLowerCase() === 'li',
+                    );
+                    return (
+                        items
+                            .map((li, index) => {
+                                const marker = tagName === 'ol' ? `${index + 1}. ` : '- ';
+                                const content = Array.from(li.childNodes)
+                                    .map(child => {
+                                        const part = processNode(child);
+                                        return child.nodeType === Node.ELEMENT_NODE &&
+                                            ['ul', 'ol'].includes(child.tagName.toLowerCase())
+                                            ? `\n${part.trimEnd()}\n`
+                                            : part.trim();
+                                    })
+                                    .join(' ')
+                                    .trim();
+                                const lines = content.split('\n').map(line => line.trimEnd());
+                                return (
+                                    marker +
+                                    lines[0] +
+                                    lines
+                                        .slice(1)
+                                        .map(line => `\n${' '.repeat(marker.length)}${line}`)
+                                        .join('') +
+                                    '\n'
+                                );
+                            })
+                            .join('') + '\n'
+                    );
                 }
 
                 case 'details':
@@ -374,11 +386,11 @@ function formatArticleComponent(title, articleComponent) {
 
                 case 'strong':
                 case 'b':
-                    return '**' + textContent + '**';
+                    return '**' + Array.from(node.childNodes).map(processNode).join('') + '**';
 
                 case 'em':
                 case 'i':
-                    return '*' + textContent + '*';
+                    return '*' + Array.from(node.childNodes).map(processNode).join('') + '*';
 
                 case 'code':
                     if (

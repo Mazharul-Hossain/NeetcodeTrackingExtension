@@ -203,3 +203,50 @@ test('problem heading prefers the article and refuses ambiguous page headings', 
     headings = [{ closest: () => null, getClientRects: () => [] }];
     assert.equal(f.context.getProblemHeading(article), null);
 });
+
+test('description lists preserve literal comparisons and render math only from KaTeX source', () => {
+    const f = contentFixture();
+    const text = textContent => ({ nodeType: 3, textContent });
+    const element = (tagName, childNodes, extra = {}) => ({
+        nodeType: 1,
+        tagName,
+        childNodes,
+        textContent: childNodes.map(child => child.textContent).join(''),
+        classList: { contains: () => false },
+        ...extra,
+    });
+    const math = element('SPAN', [text('x²x^2x²')], {
+        classList: { contains: value => value === 'katex' },
+        querySelector: () => ({ textContent: 'x^2' }),
+    });
+    const list = element('UL', [
+        element('LI', [text('nums[0] + nums[1] == 9')]),
+        element('LI', [text('Bounds: 0 < n > 1 ^ 2')]),
+        element('LI', [text('Use'), math]),
+    ]);
+    assert.equal(
+        f.context.formatArticleComponent('Example', { childNodes: [list] }),
+        '# **Example**\n\n- nums[0] + nums[1] == 9\n- Bounds: 0 < n > 1 ^ 2\n- Use $x^2$',
+    );
+});
+
+test('nested ordered and unordered items appear once with correct indentation', () => {
+    const f = contentFixture();
+    const text = textContent => ({ nodeType: 3, textContent });
+    const element = (tagName, childNodes) => ({
+        nodeType: 1,
+        tagName,
+        childNodes,
+        textContent: childNodes.map(child => child.textContent).join(''),
+        classList: { contains: () => false },
+    });
+    const nested = element('UL', [element('LI', [text('Child')])]);
+    const list = element('OL', [
+        element('LI', [text('Parent'), nested]),
+        element('LI', [text('Sibling')]),
+    ]);
+    assert.equal(
+        f.context.formatArticleComponent('Example', { childNodes: [list] }),
+        '# **Example**\n\n1. Parent\n   - Child\n2. Sibling',
+    );
+});
