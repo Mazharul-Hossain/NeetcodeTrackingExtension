@@ -1,8 +1,8 @@
 # Secure extension settings verification
 
-Status: Automated verification passed; production Chrome/GitHub checks pending user interaction.
+Status: Automated verification passed; current production Chrome/GitHub checks remain pending user testing. See the [November 24 save-correctness follow-up](2026-11-24-save-correctness.md) for the current browser checklist.
 
-## Environment
+## Original verification environment
 
 - Node v24.22.3 on Windows; feature branch `codex/secure-extension-settings`.
 - User-confirmed compatibility fixture: Windows Hello PIN, Chrome 157.0.8103.80 Official Build ARM64.
@@ -11,20 +11,20 @@ Status: Automated verification passed; production Chrome/GitHub checks pending u
 
 ## Automated evidence
 
-`node --test tests/*.test.cjs`: **90 passed, 0 failed**.
+`npm run format`, followed by `npm run check`: **125 passed, 0 failed** (November 24 follow-up). The original settings review had 90 passing tests.
 
-`node --check` passed for `background.js`, `vault-crypto.js`, `content-script.js` and `options.js`. `git diff --check` passed; Git reports only automatic LF/CRLF normalization notices for edited existing files.
+The current full check includes Prettier validation, ESLint and the Node test suite. `git diff --check` passed. Earlier syntax checks also passed for `background.js`, `vault-crypto.js`, `content-script.js` and `options.js`.
 
 Coverage includes:
 
 - Per-tab capture, one-time release, malformed/negative-tab handling and unconfigured toolbar routing.
-- Stable language/category/editor/Markdown behavior, exact topic/front-matter/UTC output and blank-code problem-only saves.
+- Language mapping and rejection, scoped categories, complete-model capture, Windows-safe titles, exact topic/front-matter/UTC output, blank-code problem-only saves, no-op feedback, nested Markdown lists and selected-title deduplication.
 - Real native HKDF/AES-GCM round trips, fresh salts/IVs, wrong PRF keys, authenticated metadata/ciphertext tampering and malformed records.
 - Rejected untrusted senders, nested frames, arbitrary endpoints, invalid extensions and path traversal.
 - Trusted storage initialization ordering/failure, no plaintext local token, summary redaction and matching vault/session generation.
 - Document/challenge/origin/RP hash/user-verification binding, single-use and expired unlock requests.
 - Worker restart preservation, Lock/Clear behavior, metadata-save races and session-deletion failure across restart.
-- Sequential create/update, existing SHA, UTF-8, stop-on-failure, partial saved-file metadata, sanitized authentication/access/conflict/validation/network/rate-limit errors and timeout/abort through response-body consumption.
+- Atomic Git Data API create/update, preserved notes, content-dependent synthetic tree hashes, identical-tree no-op detection, UTF-8, failures at every publication stage, concurrent branch changes, sanitized errors and timeout/abort through response-body consumption.
 - Options-to-worker integration using actual encryption, first setup, blank-token metadata updates, candidate-only connection test, unlock/replacement, cancellation, unsupported PRF, corrupt-vault recovery and stale prompt completion after Lock/Clear.
 - Manifest/resource wiring and absence of credential storage/networking in content scripts.
 
@@ -63,6 +63,8 @@ Before production migration, 20 baseline tests passed against the original imple
 - User reported the production Options status: "Settings saved. Your token is encrypted on this device." This confirms the main settings Save path; no credential value was provided in chat.
 - User confirmed the connection-test result: "Authentication and repository access verified. Write permission is not verified."
 - Live Chrome inspection showed the production vault unlocked and the toolbar redirect notice asking to reload the NeetCode tab. After refreshing the existing Spiral Matrix tab, clicking the extension displayed "Saved via click" without redirecting. The editor contained starter code. This verifies the worker-reported manual upload success; repository contents were not independently inspected.
-- Pending: production restart/unlock verification, actual content-script storage denial, and automatic GitHub save/update verification.
-- The automatic receiver recovery change is verified by automated browser-boundary tests; it has not yet been exercised in live Chrome after reloading the extension with its new `scripting` permission.
+- Still pending on the current implementation: production Chrome restart/unlock, actual page/content-script storage denial, real automatic create/update/no-op saves, and toolbar plus automatic reconnection after extension reload. Earlier compatibility-fixture and manual-save evidence does not complete these checks.
+- Real submission URL transitions must also be checked: any tab URL change or loading event invalidates pending capture/tickets, and page URL matching includes the query string. Automated tests verify rejection; they do not show whether NeetCode changes routes during submission.
+- Both trigger paths now use the bounded automatic receiver-recovery helper. This is covered by synthetic browser-boundary tests and has not yet been exercised in live Chrome for the current revision. The extension uses `scripting` plus existing NeetCode host access; `activeTab` was removed.
+- Use the [current browser checklist](2026-11-24-save-correctness.md) to record actual results without treating automated tests as production verification.
 - Never place a real token or PIN in this report, screenshots, test fixtures or chat. User credential entry and PIN prompts remain user-only.

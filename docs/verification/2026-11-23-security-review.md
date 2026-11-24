@@ -2,6 +2,8 @@
 
 Date: November 23, 2026
 Version: 2.0.0
+Follow-up: [November 24 save-correctness verification](2026-11-24-save-correctness.md) records the latest automated coverage and pending browser checks. This document retains the original review evidence.
+
 Scope: working-tree changes and new runtime/test files against baseline `791d1d76500e2a1b83f608f6d8efac1df50e52f0`.
 
 ## Result
@@ -44,12 +46,13 @@ Each code fix was preceded by a failing reproduction. New regressions cover navi
 
 1. Publish the privacy policy at an accessible URL, enter it in the developer dashboard, and ensure listing/dashboard data disclosures match actual behavior. Publishing and dashboard submission were not performed in this review.
 2. Verify the final extension in live Chrome after reload/update and browser restart: retained encrypted vault, PIN unlock, automatic receiver recovery, and manual and automatic create/update saves. Earlier manual saving and the Windows Hello compatibility fixture succeeded; the latest automatic-route and DOM-timeout fixes have automated evidence only.
-3. Confirm local and session storage are inaccessible from a content-script context in live Chrome, including after worker restart. Mocked enforcement and authorization tests are not a substitute for this browser check.
-4. Build and inspect the final allowlisted package. Never upload the whole working directory; exclude `config.js`, `.env`, tests, docs, and other local files. Provide the store's required listing assets and permission justifications.
+3. During a real submission, check whether NeetCode changes the URL or loading state before capture, sync completion or delivery. Any tab URL change/loading event cancels pending work, and expected URLs must match exactly, including query strings. Record whether an automatic save is cancelled; synthetic route-rejection tests do not establish live-site behavior.
+4. Confirm local and session storage are inaccessible from a content-script context in live Chrome, including after worker restart. Mocked enforcement and authorization tests are not a substitute for this browser check.
+5. Build and inspect the final allowlisted package. Never upload the whole working directory; exclude `config.js`, `.env`, tests, docs, and other local files. Provide the store's required listing assets and permission justifications.
 
 ## Known limits
 
-An unlocked token is present in trusted session storage. Malware or compromised trusted extension code can access an unlocked token. Passkey-provider support outside the tested Windows Hello/Chrome configuration is unverified. Automatic capture still depends on NeetCode's own GitHub-sync event and temporary worker memory; interrupted jobs are not persisted or replayed. The inherited C# `.c` mapping and visible-editor fallback remain documented limits.
+An unlocked token is present in trusted session storage. Malware or compromised trusted extension code can access an unlocked token. Passkey-provider support outside the tested Windows Hello/Chrome configuration is unverified. Automatic capture still depends on NeetCode's own GitHub-sync event and temporary worker memory; interrupted jobs are not persisted or replayed. The inherited C# `.c` mapping and visible-editor fallback described in the original review were subsequently replaced by explicit language mappings and complete Monaco-model capture. Their current implementation and other save fixes have automated coverage; current live-browser checks remain pending in the follow-up.
 
 ## References
 

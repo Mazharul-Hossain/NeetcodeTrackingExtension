@@ -29,7 +29,7 @@ Version **2.0.0** adds an extension settings page, encrypted GitHub token storag
 
 You can reopen settings at any time: right-click the extension icon and select **Options**, or use **Extension options** on its Details page in `chrome://extensions`.
 
-When updating an unpacked installation, keep the project in the same folder and select **Reload** in `chrome://extensions`. Unlock again afterward; already-open NeetCode problem tabs reconnect when you click the toolbar icon.
+When updating an unpacked installation, keep the project in the same folder and select **Reload** in `chrome://extensions`. Unlock again afterward; already-open NeetCode problem tabs reconnect on a toolbar click or the next successful automatic-save trigger.
 
 ## Connect your GitHub repository
 
@@ -59,7 +59,7 @@ Every successful **Save settings** locks the vault, including changes to your na
 
 1. Open a problem on [NeetCode](https://neetcode.io/) and write your solution.
 2. Click the extension's toolbar icon.
-3. Wait for **Saved via click** or **Updated via click** on the page.
+3. Wait for **Saved via click**, **Updated via click**, or **Already saved, nothing to update.** on the page.
 
 Toolbar saves read the complete Monaco editor model, preserving lines and indentation regardless of scrolling. If the editor cannot be read unambiguously, the save stops with an error instead of uploading partial code. An empty editor saves the problem description only. Files are organized like this:
 
@@ -72,7 +72,7 @@ Data Structures & Algorithms/    # or System Design/
 
 Supported language mappings are Python (`.py`), JavaScript (`.js`), TypeScript (`.ts`), Java (`.java`), C++ (`.cpp`), C (`.c`), C# (`.cs`), Go (`.go`), Rust (`.rs`), Kotlin (`.kt`), Swift (`.swift`), Ruby (`.rb`), PHP (`.php`), Scala (`.scala`), Dart (`.dart`), Racket (`.rkt`), Elixir (`.ex`), Erlang (`.erl`), F# (`.fs`), R (`.r`), Perl (`.pl`), Haskell (`.hs`), Lua (`.lua`), Bash/Shell (`.sh`), and SQL (`.sql`). Labels are case-insensitive and trimmed. An unrecognized language with nonempty code stops the save without writing files.
 
-Saves create blobs, a tree based on the current branch snapshot, and one commit through GitHub's Git Data API. A single non-forced ref update publishes all changed files together. If the branch changes concurrently, the save fails safely; retry to use the latest snapshot. Commit messages distinguish additions from updates.
+Saves with changes create blobs, a tree based on the current branch snapshot, and one commit through GitHub's Git Data API. A single non-forced ref update publishes all changed files together. If the branch changes concurrently, the save fails safely; retry to use the latest snapshot. Commit messages distinguish additions from updates. If the resulting tree is unchanged, no commit or branch update is created. Description-only saves also report **Already saved, nothing to update.** when `problem.md` already exists.
 
 The first save creates `problem.md`. Later saves update the solution and leave the existing Markdown file untouched, preserving your Notes, tags, creation date, and description. Delete `problem.md` in your repository if you want the next save to regenerate it.
 
@@ -80,7 +80,9 @@ Category detection uses an explicit `system-design` URL path segment or a same-o
 
 ### Automatic saves
 
-Automatic capture runs only after NeetCode's own GitHub-sync request completes with a successful HTTP status (2xx). Failed sync responses discard the captured submission. This requires NeetCode's built-in GitHub integration to be configured; running or submitting code alone does not guarantee this trigger. The toolbar save works independently of that integration.
+Automatic capture runs only after NeetCode's own GitHub-sync request completes with a successful HTTP status (2xx). Failed sync responses discard the captured submission. This requires NeetCode's built-in GitHub integration to be configured; running or submitting code alone does not guarantee this trigger. The toolbar save works independently of that integration. Both paths reconnect missing page receivers without refreshing the editor; only readiness probes are retried, never a delivered save.
+
+Pending saves are cancelled by tab URL changes or a loading event. Capture and delivery require an exact page URL match, including the query string. A stale automatic message rejected by the page shows a retry toast. The behavior of real NeetCode submissions that change the URL is still [pending browser verification](docs/verification/2026-11-24-save-correctness.md).
 
 ## Unlocking and security
 
