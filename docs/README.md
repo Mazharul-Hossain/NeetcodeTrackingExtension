@@ -1,5 +1,7 @@
 # Project documentation
 
+Latest verification: [Five P2 review fixes](verification/2026-11-24-p2-fixes.md), with 147 automated tests passing and the remaining live checks listed explicitly.
+
 | Document | Scope | Status |
 | --- | --- | --- |
 | [Secure extension settings plan](plans/2026-11-23-secure-extension-settings.md) | Settings page, encrypted local token with PIN-assisted passkey unlock, background GitHub requests, migration, and verification | Implemented; automated checks passed; live verification pending |

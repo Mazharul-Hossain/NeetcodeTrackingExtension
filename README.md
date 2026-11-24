@@ -61,7 +61,7 @@ Every successful **Save settings** locks the vault, including changes to your na
 2. Click the extension's toolbar icon.
 3. Wait for **Saved via click**, **Updated via click**, or **Already saved, nothing to update.** on the page.
 
-Toolbar saves read the complete Monaco editor model, preserving lines and indentation regardless of scrolling. If the editor cannot be read unambiguously, the save stops with an error instead of uploading partial code. An empty editor saves the problem description only. Files are organized like this:
+Toolbar saves read the complete Monaco editor model and its language together, preserving lines and indentation regardless of scrolling. Later changes to the language selector do not relabel captured code. If the editor cannot be read unambiguously, the save stops with an error instead of uploading partial code. An empty editor saves the problem description only. Files are organized like this:
 
 ```text
 Data Structures & Algorithms/    # or System Design/
@@ -74,7 +74,7 @@ Supported language mappings are Python (`.py`), JavaScript (`.js`), TypeScript (
 
 Saves with changes create blobs, a tree based on the current branch snapshot, and one commit through GitHub's Git Data API. A single non-forced ref update publishes all changed files together. If the branch changes concurrently, the save fails safely; retry to use the latest snapshot. Commit messages distinguish additions from updates. If the resulting tree is unchanged, no commit or branch update is created. Description-only saves also report **Already saved, nothing to update.** when `problem.md` already exists.
 
-The first save creates `problem.md`. Later saves update the solution and leave the existing Markdown file untouched, preserving your Notes, tags, creation date, and description. Delete `problem.md` in your repository if you want the next save to regenerate it.
+The first save creates `problem.md`, including HTTP(S) image references for problem diagrams and their alternative text. Later saves update the solution and leave the existing Markdown file untouched, preserving your Notes, tags, creation date, and description. Delete `problem.md` in your repository if you want the next save to regenerate it, including diagrams omitted by earlier versions.
 
 Folder names are Windows-safe slugs: repeated dashes collapse and characters such as `:` and `?` are removed, so `Two Sum II - Input Array Is Sorted` saves to `two-sum-ii-input-array-is-sorted`. Earlier versions named that folder `two-sum-ii---input-array-is-sorted`. If a folder with the earlier name already contains `problem.md` and no new-style folder exists, saves keep using the earlier folder so its notes stay together. Rename the folder yourself if you prefer the new name.
 
@@ -83,6 +83,8 @@ Category detection uses an explicit `system-design` URL path segment or a same-o
 ### Automatic saves
 
 Automatic capture runs only after NeetCode's own GitHub-sync request completes with a successful HTTP status (2xx). Failed sync responses discard the captured submission. This requires NeetCode's built-in GitHub integration to be configured; running or submitting code alone does not guarantee this trigger. The toolbar save works independently of that integration. Both paths reconnect missing page receivers without refreshing the editor; only readiness probes are retried, never a delivered save.
+
+Each sync request keeps the code and language captured when that request starts. A later run does not replace an in-flight submission, and an older sync completion does not replace a newer successful sync. Automatic saves use the recorded request language rather than the current selector. If that language is missing, no files are saved; use the toolbar to capture the current editor instead. In-flight sync associations expire after two minutes and are discarded on request errors, navigation, or settings/lock changes.
 
 Pending saves are cancelled by tab URL changes or a loading event. Capture and delivery require an exact page URL match, including the query string. A stale automatic message rejected by the page shows a retry toast. The behavior of real NeetCode submissions that change the URL is still [pending browser verification](docs/verification/2026-11-24-save-correctness.md).
 

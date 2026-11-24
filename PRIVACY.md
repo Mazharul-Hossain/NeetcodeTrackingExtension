@@ -19,6 +19,8 @@ Website access is limited to the declared `https://neetcode.io/*` and `https://a
 
 Your token is sent to GitHub over HTTPS for authentication. Saving sends solution code, problem descriptions, and commit information to GitHub. **If your repository is public, its saved files and commit details—including the committer name and email—are public.** Use a private repository and a GitHub noreply email if appropriate for your needs.
 
+Saved problem descriptions may reference diagram images hosted by NeetCode or other image hosts. GitHub or your browser may load those images when you view the rendered Markdown. The extension preserves the references; it does not download or execute image content.
+
 The extension does not send this information to a developer-operated server. GitHub handles information it receives under its own policies. Your selected passkey provider handles passkey creation, verification, storage, and any provider-supported synchronization under its own policies. NeetCode's own website and GitHub integration operate separately from this extension.
 
 ## Local storage and protection
