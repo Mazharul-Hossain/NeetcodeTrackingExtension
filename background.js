@@ -853,14 +853,23 @@ chrome.runtime.onInstalled.addListener(details => {
 chrome.webRequest.onBeforeRequest.addListener(
     details => {
         if (details.url.includes('executeCodeFunctionHttp')) {
+            delete pendingCodeByTab[details.tabId];
             if (details.requestBody && details.requestBody.raw) {
                 try {
-                    const buffer = details.requestBody.raw[0].bytes;
-
-                    // Decode request body
-                    const uint8Array = new Uint8Array(buffer);
-                    const decoder = new TextDecoder('utf-8');
-                    const decodedString = decoder.decode(uint8Array);
+                    const chunks = details.requestBody.raw;
+                    if (
+                        !chunks.length ||
+                        chunks.some(chunk => !(chunk.bytes instanceof ArrayBuffer))
+                    ) {
+                        return;
+                    }
+                    const size = chunks.reduce((total, chunk) => total + chunk.bytes.byteLength, 0);
+                    if (size > 2097152) return;
+                    const decoder = new TextDecoder('utf-8', { fatal: true });
+                    const decodedString =
+                        chunks
+                            .map(chunk => decoder.decode(chunk.bytes, { stream: true }))
+                            .join('') + decoder.decode();
 
                     const parsed = JSON.parse(decodedString);
 
@@ -869,6 +878,7 @@ chrome.webRequest.onBeforeRequest.addListener(
 
                     const title = data.problemId;
                     const code = data.rawCode;
+                    if (typeof title !== 'string' || !title || typeof code !== 'string') return;
 
                     if (details.tabId >= 0) {
                         // Store safely per tab
@@ -949,7 +959,7 @@ chrome.webRequest.onCompleted.addListener(
 
         const stored = pendingCodeByTab[tabId];
         delete pendingCodeByTab[tabId];
-        if (!stored) return;
+        if (!stored || !(details.statusCode >= 200 && details.statusCode < 300)) return;
         try {
             const pageUrl = await stored.pageUrl;
             if (!pageUrl || stored.navigation !== (navigationByTab.get(tabId) || 0)) {

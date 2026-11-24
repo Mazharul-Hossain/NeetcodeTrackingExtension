@@ -24,10 +24,11 @@ function capture(fixture, tabId, title, code) {
     });
 }
 
-function release(fixture, tabId) {
+function release(fixture, tabId, statusCode = 200) {
     return fixture.chrome.webRequest.onCompleted.fire({
         tabId,
         url: 'https://neetcode.io/api/githubFunctionHttp',
+        statusCode,
     });
 }
 
@@ -278,4 +279,49 @@ test('navigation while resolving the capture URL cannot trigger extraction on th
         f.sent.some(args => args[1].type === 'CODE_DATA'),
         false,
     );
+});
+
+test('failed sync responses discard captures without starting automatic saves', async () => {
+    for (const status of [undefined, 0, 199, 301, 400, 403, 500]) {
+        const f = backgroundFixture();
+        await configure(f);
+        capture(f, 7, 'two-sum', 'synthetic code');
+        await f.chrome.webRequest.onCompleted.fire({
+            tabId: 7,
+            url: 'https://neetcode.io/api/githubFunctionHttp',
+            statusCode: status,
+        });
+        assert.equal(f.sent.length, 0);
+        await release(f, 7);
+        assert.equal(f.sent.length, 0, 'Failed captures must not replay on a later success');
+    }
+});
+
+test('chunked request bodies preserve code even when UTF-8 characters span chunks', async () => {
+    const f = backgroundFixture();
+    await configure(f);
+    const code = 'return "café 問題"';
+    const bytes = new TextEncoder().encode(
+        JSON.stringify({ data: { problemId: 'two-sum', rawCode: code } }),
+    );
+    f.chrome.webRequest.onBeforeRequest.fire({
+        tabId: 7,
+        url: 'https://neetcode.io/api/executeCodeFunctionHttp',
+        requestBody: { raw: Array.from(bytes, byte => ({ bytes: new Uint8Array([byte]).buffer })) },
+    });
+    await release(f, 7, 204);
+    assert.equal(f.sent.at(-1)[1].code, code);
+});
+
+test('malformed newer submissions cannot release an older capture', async () => {
+    const f = backgroundFixture();
+    await configure(f);
+    capture(f, 7, 'two-sum', 'old code');
+    f.chrome.webRequest.onBeforeRequest.fire({
+        tabId: 7,
+        url: 'https://neetcode.io/api/executeCodeFunctionHttp',
+        requestBody: { raw: [{ file: 'not-readable' }] },
+    });
+    await release(f, 7);
+    assert.equal(f.sent.length, 0);
 });
