@@ -253,12 +253,18 @@ async function addContentToGitHub(
     return chrome.runtime.sendMessage({ type: 'UPLOAD_PROBLEM', payload, uploadTicket });
 }
 
-function formatArticleComponent(title, articleComponent) {
+function formatArticleComponent(title, articleComponent, titleHeading = null) {
     if (!articleComponent) return '';
+    if (!titleHeading) {
+        const candidate = articleComponent.querySelector?.('h1');
+        if (candidate?.textContent.trim() === title.trim()) titleHeading = candidate;
+    }
 
     let markdown = `# **${title}**\n\n`;
 
     function processNode(node) {
+        // The selected title is already emitted above, even when nested inside the article.
+        if (node === titleHeading) return '';
         if (node.nodeType === Node.TEXT_NODE) {
             const text = node.textContent.trim();
             // Skip empty or duplicate math fragments
@@ -473,7 +479,11 @@ async function processAndUpload(code, source = 'auto', uploadTicket = null, page
             controller.signal,
         );
         // Convert problem description into markdown
-        const markdownContent = formatArticleComponent(questionTitle.textContent, articleComponent);
+        const markdownContent = formatArticleComponent(
+            questionTitle.textContent,
+            articleComponent,
+            questionTitle,
+        );
         const languageElement = await waitForElement(
             'querySelector',
             '.selected-language',

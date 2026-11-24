@@ -308,3 +308,20 @@ test('toast styles are namespaced, reused and independent of the first notificat
     timers.at(-1)();
     assert.equal(first.removed, true);
 });
+
+test('Markdown skips only the selected title heading and preserves other headings', () => {
+    const f = contentFixture();
+    const heading = textContent => ({ nodeType: 1, tagName: 'H1', textContent, childNodes: [] });
+    const title = heading('Two Sum');
+    const other = heading('Examples');
+    const article = { childNodes: [title, other], querySelector: () => title };
+    assert.equal(
+        f.context.formatArticleComponent('Two Sum', article),
+        '# **Two Sum**\n\n# Examples',
+    );
+    const externalTitle = heading('External title');
+    assert.equal(
+        f.context.formatArticleComponent('External title', article, externalTitle),
+        '# **External title**\n\n# Two Sum\n\n# Examples',
+    );
+});

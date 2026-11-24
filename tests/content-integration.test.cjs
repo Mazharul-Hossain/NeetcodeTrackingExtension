@@ -374,3 +374,29 @@ test('stale automatic saves show a fixed toast, including query-only route chang
         'The page changed before the automatic save arrived. Click the extension again to save this problem.',
     );
 });
+
+test('an in-article title appears once in the generated problem Markdown', async () => {
+    const f = fixture({ ok: true });
+    const text = textContent => ({ nodeType: 3, textContent });
+    const element = (tagName, childNodes) => ({
+        nodeType: 1,
+        tagName,
+        childNodes,
+        textContent: childNodes.map(child => child.textContent).join(''),
+        classList: { contains: () => false },
+    });
+    const title = element('H1', [text('Two Sum')]);
+    const article = element('MAIN', [
+        element('DIV', [title]),
+        element('P', [text('Find a pair.')]),
+        element('H1', [text('Examples')]),
+    ]);
+    article.querySelector = selector => (selector === 'h1' ? title : null);
+    const original = f.context.document.querySelector;
+    f.context.document.querySelector = selector =>
+        selector === 'main.my-article-component-container' ? article : original(selector);
+    await f.context.processAndUpload('synthetic code', 'manual');
+    const markdown = f.messages[0].payload.files.find(file => file.kind === 'problem').content;
+    assert.equal((markdown.match(/Two Sum/g) || []).length, 1);
+    assert.match(markdown, /# \*\*Two Sum\*\*\n\nFind a pair\.\n\n# Examples/);
+});
