@@ -1,0 +1,24 @@
+{
+  "name": "neetcode-tracking-extension",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Chrome extension that saves NeetCode solutions and problem notes to GitHub.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "test": "node --test \"tests/*.test.cjs\"",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run format:check && npm run lint && npm test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.0",
+    "eslint": "^10.15.0",
+    "globals": "^16.0.0",
+    "prettier": "3.10.1"
+  }
+}

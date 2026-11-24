@@ -123,10 +123,26 @@ An unpacked installation and a future Chrome Web Store installation may have dif
 
 ## Development
 
-No build step or runtime dependencies are required. With Node.js 24, run:
+The extension has no build step or runtime dependencies. Prettier and ESLint are development-only dependencies used for formatting and linting. With Node.js 22.13 or newer, run:
 
 ```powershell
-node --test tests/*.test.cjs
+npm install          # once, to install Prettier and ESLint
+npm run check        # format check, lint, and the test suite
+```
+
+Individual scripts:
+
+| Script | What it does |
+| --- | --- |
+| `npm test` | Runs the Node test suite (`node --test "tests/*.test.cjs"`) |
+| `npm run lint` / `npm run lint:fix` | Lints with ESLint (`eslint.config.mjs`); `lint:fix` applies safe fixes |
+| `npm run format` / `npm run format:check` | Formats with Prettier (`.prettierrc.json`) or checks formatting without writing |
+
+Prettier uses a 100-character line width, 4-space indentation, and single quotes. Markdown files are excluded so documentation tables keep their hand-written layout. Run `npm run format` before committing.
+
+Syntax-only checks still work without installing anything:
+
+```powershell
 node --check background.js
 node --check vault-crypto.js
 node --check content-script.js

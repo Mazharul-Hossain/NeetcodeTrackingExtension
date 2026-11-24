@@ -1,0 +1,4 @@
+# Prose and policy documents are edited by hand; keep their tables and wrapping as written.
+*.md
+package-lock.json
+dist/
