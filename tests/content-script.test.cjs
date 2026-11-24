@@ -14,13 +14,28 @@ test('language mapping and fallback remain stable', () => {
         ['py', 'java', 'cpp', 'c', 'js', 'py'],
     );
 });
-test('category uses the current page text', () => {
-    const document = { body: { innerText: 'System Design problem' } };
+test('category ignores body/navigation text and uses only explicit routes or breadcrumb links', () => {
+    let links = [];
+    const document = {
+        body: { innerText: 'Navigation System Design footer System Design Two Sum' },
+        querySelectorAll: selector => {
+            assert.match(selector, /breadcrumb/);
+            return links;
+        },
+    };
     const f = contentFixture({ document });
-    assert.equal(f.context.getCategory(), 'System Design');
-    document.body.innerText = 'Arrays';
     assert.equal(f.context.getCategory(), 'Data Structures & Algorithms');
+    f.context.location.href = 'https://neetcode.io/problems/two-sum?next=system-design';
+    assert.equal(f.context.getCategory(), 'Data Structures & Algorithms');
+    links = [{ href: 'https://foreign.invalid/courses/system-design' }];
+    assert.equal(f.context.getCategory(), 'Data Structures & Algorithms');
+    links = [{ href: 'https://neetcode.io/courses/system-design' }];
+    assert.equal(f.context.getCategory(), 'System Design');
+    f.context.location.href = 'https://neetcode.io/problems/system-design/example';
+    links = [];
+    assert.equal(f.context.getCategory(), 'System Design');
 });
+
 test('editor reads textarea first, then falls back to visible lines', () => {
     let textarea = { value: '完整 solution' };
     const f = contentFixture({

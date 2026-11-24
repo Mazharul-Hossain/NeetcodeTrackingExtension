@@ -362,12 +362,18 @@ function formatArticleComponent(title, articleComponent) {
 }
 
 function getCategory() {
-    const text = document.body.innerText.toLowerCase();
-
-    if (text.includes('system design')) {
-        return 'System Design';
+    const isSystemDesign = url =>
+        new URL(url, location.href).pathname.split('/').includes('system-design');
+    if (isSystemDesign(location.href)) return 'System Design';
+    const links = document.querySelectorAll(
+        '[aria-label="breadcrumb" i] a[href], .breadcrumb a[href], .breadcrumbs a[href]',
+    );
+    for (const link of links) {
+        const url = new URL(link.href, location.href);
+        if (url.origin === new URL(location.href).origin && isSystemDesign(url.href)) {
+            return 'System Design';
+        }
     }
-
     return 'Data Structures & Algorithms';
 }
 

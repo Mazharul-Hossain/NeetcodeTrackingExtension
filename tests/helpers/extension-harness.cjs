@@ -61,7 +61,11 @@ function contentFixture(overrides = {}, transform) {
         'content-script.js',
         {
             chrome,
-            document: { body: { innerText: 'Data Structures & Algorithms' } },
+            location: { href: 'https://neetcode.io/problems/two-sum' },
+            document: {
+                body: { innerText: 'Data Structures & Algorithms' },
+                querySelectorAll: () => [],
+            },
             Node: { TEXT_NODE: 3, ELEMENT_NODE: 1 },
             config: {
                 github: {

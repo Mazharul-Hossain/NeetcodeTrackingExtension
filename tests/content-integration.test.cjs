@@ -33,6 +33,7 @@ function fixture(response) {
         },
         document: {
             body: { innerText: 'Arrays' },
+            querySelectorAll: () => [],
             querySelector: selector =>
                 ({
                     h1: { textContent: 'Two Sum' },

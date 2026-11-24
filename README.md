@@ -74,6 +74,8 @@ Supported language mappings are Python (`.py`), JavaScript (`.js`), Java (`.java
 
 The first save creates `problem.md`. Later saves update the solution and leave the existing Markdown file untouched, preserving your Notes, tags, creation date, and description. Delete `problem.md` in your repository if you want the next save to regenerate it.
 
+Category detection uses an explicit `system-design` URL path segment or a same-origin System Design route linked from a breadcrumb. Other problems use `Data Structures & Algorithms`; navigation, footer, and description text do not determine the category. Existing files saved under an incorrect category or extension are not moved automatically.
+
 ### Automatic saves
 
 Automatic capture runs after NeetCode's own GitHub-sync request completes. This requires NeetCode's built-in GitHub integration to be configured; running or submitting code alone does not guarantee this trigger. The toolbar save works independently of that integration.
