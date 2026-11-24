@@ -30,3 +30,5 @@ Record the extension commit, Chrome/OS versions, pass/fail and observations when
 ## Date policy
 
 Creation dates and commit-message dates remain UTC. Near the end of the day in New York they can display the following calendar date; this is the existing documented policy. A switch to local dates is a separate preference change and was not included in these correctness fixes.
+
+The date preference and slash-containing branch question are tracked in the [follow-up tracker](../follow-ups.md).
