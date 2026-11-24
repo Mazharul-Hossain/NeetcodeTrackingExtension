@@ -23,6 +23,9 @@ const GITHUB_API_ORIGIN = 'https://api.github.com';
 const GITHUB_API_VERSION = '2022-11-28';
 const EXTENSION_ORIGIN = chrome.runtime.getURL('').replace(/\/$/, '');
 const pendingCodeByTab = {};
+const syncCapturesByRequestId = new Map();
+const latestSuccessfulSyncByTab = new Map();
+let captureSequence = 0;
 const navigationByTab = new Map();
 const pendingCeremonies = new Map();
 const uploadTickets = new Map();
@@ -144,6 +147,9 @@ function invalidatePendingWork() {
     settingsRevision++;
     pendingCeremonies.clear();
     uploadTickets.clear();
+    syncCapturesByRequestId.clear();
+    latestSuccessfulSyncByTab.clear();
+    for (const tabId of Object.keys(pendingCodeByTab)) delete pendingCodeByTab[tabId];
     for (const controller of activeRequests) controller.abort();
 }
 
@@ -699,21 +705,27 @@ async function uploadProblem(payload, revision, uploadTicket, sender) {
     const baseTree = parent.data?.tree?.sha;
     if (parent.status !== 200 || typeof baseTree !== 'string' || !baseTree) fail('GITHUB_ERROR');
     // All existence checks use the same immutable commit as the new commit's parent.
-    const fileExists = async path => {
+    const pathExists = async (path, kind = 'file') => {
         const encodedPath = path.split('/').map(encodeURIComponent).join('/');
         const existing = await request(`/contents/${encodedPath}?ref=${encodeURIComponent(head)}`);
         const present = existing.status === 200;
-        if (present && existing.data?.type !== 'file') fail('CONFLICT');
+        if (
+            present &&
+            (kind === 'directory' ? !Array.isArray(existing.data) : existing.data?.type !== 'file')
+        ) {
+            fail('CONFLICT');
+        }
         if (existing.status !== 404 && !present) fail('GITHUB_ERROR');
         return present;
     };
+    const fileExists = path => pathExists(path);
     // Keep saving into a folder created under the old naming rules, so its notes stay together.
     let folder = payload.title;
     const legacy = payload.legacyTitle;
     if (
         legacy &&
         legacy !== payload.title &&
-        !(await fileExists(`${payload.category}/${payload.title}/problem.md`)) &&
+        !(await pathExists(`${payload.category}/${payload.title}`, 'directory')) &&
         (await fileExists(`${payload.category}/${legacy}/problem.md`))
     ) {
         folder = legacy;
@@ -789,7 +801,14 @@ function readEditorModel(pageUrl) {
         }
         if (!model || model.isDisposed()) return null;
         const code = model.getValue();
-        return typeof code === 'string' && code.length <= 1048576 ? code : null;
+        const language = model.getLanguageId();
+        return typeof code === 'string' &&
+            code.length <= 1048576 &&
+            typeof language === 'string' &&
+            language.length > 0 &&
+            language.length <= 100
+            ? { code, language }
+            : null;
     } catch {
         return null;
     }
@@ -813,11 +832,17 @@ async function getEditorCode(sender, pageUrl, revision) {
             }),
         ]);
         checkRevision(revision);
-        const code = results?.[0]?.result;
-        if (typeof code !== 'string' || new TextEncoder().encode(code).byteLength > 1048576) {
+        const snapshot = results?.[0]?.result;
+        if (
+            typeof snapshot?.code !== 'string' ||
+            new TextEncoder().encode(snapshot.code).byteLength > 1048576 ||
+            typeof snapshot.language !== 'string' ||
+            !snapshot.language ||
+            snapshot.language.length > 100
+        ) {
             fail('EDITOR_UNAVAILABLE');
         }
-        return { ok: true, code };
+        return { ok: true, code: snapshot.code, language: snapshot.language };
     } catch (error) {
         if (error.publicCode) throw error;
         fail('EDITOR_UNAVAILABLE');
@@ -924,6 +949,23 @@ chrome.runtime.onInstalled.addListener(details => {
 
 chrome.webRequest.onBeforeRequest.addListener(
     details => {
+        if (details.url.includes('githubFunctionHttp')) {
+            const stored = pendingCodeByTab[details.tabId];
+            delete pendingCodeByTab[details.tabId];
+            if (!stored || typeof details.requestId !== 'string') return;
+            for (const [id, capture] of syncCapturesByRequestId) {
+                if (Date.now() - capture.started > 120000) syncCapturesByRequestId.delete(id);
+            }
+            if (syncCapturesByRequestId.size >= 128) {
+                syncCapturesByRequestId.delete(syncCapturesByRequestId.keys().next().value);
+            }
+            syncCapturesByRequestId.set(details.requestId, {
+                ...stored,
+                tabId: details.tabId,
+                started: Date.now(),
+            });
+            return;
+        }
         if (details.url.includes('executeCodeFunctionHttp')) {
             delete pendingCodeByTab[details.tabId];
             if (details.requestBody && details.requestBody.raw) {
@@ -950,6 +992,12 @@ chrome.webRequest.onBeforeRequest.addListener(
 
                     const title = data.problemId;
                     const code = data.rawCode;
+                    const language =
+                        typeof data.language === 'string'
+                            ? data.language
+                            : typeof data.lang === 'string'
+                              ? data.lang
+                              : null;
                     if (typeof title !== 'string' || !title || typeof code !== 'string') return;
 
                     if (details.tabId >= 0) {
@@ -970,7 +1018,14 @@ chrome.webRequest.onBeforeRequest.addListener(
                                     : null,
                             )
                             .catch(() => null);
-                        pendingCodeByTab[details.tabId] = { title, code, navigation, pageUrl };
+                        pendingCodeByTab[details.tabId] = {
+                            title,
+                            code,
+                            language,
+                            navigation,
+                            pageUrl,
+                            sequence: ++captureSequence,
+                        };
                     }
                 } catch {
                     /* Ignore incomplete or malformed request bodies. */
@@ -1029,9 +1084,18 @@ chrome.webRequest.onCompleted.addListener(
         const tabId = details.tabId;
         if (tabId < 0) return;
 
-        const stored = pendingCodeByTab[tabId];
-        delete pendingCodeByTab[tabId];
-        if (!stored || !(details.statusCode >= 200 && details.statusCode < 300)) return;
+        const stored = syncCapturesByRequestId.get(details.requestId);
+        syncCapturesByRequestId.delete(details.requestId);
+        if (
+            !stored ||
+            stored.tabId !== tabId ||
+            !(details.statusCode >= 200 && details.statusCode < 300) ||
+            Date.now() - stored.started > 120000
+        ) {
+            return;
+        }
+        if (stored.sequence <= (latestSuccessfulSyncByTab.get(tabId) || 0)) return;
+        latestSuccessfulSyncByTab.set(tabId, stored.sequence);
         try {
             const pageUrl = await stored.pageUrl;
             if (!pageUrl || stored.navigation !== (navigationByTab.get(tabId) || 0)) {
@@ -1040,10 +1104,12 @@ chrome.webRequest.onCompleted.addListener(
             const uploadTicket = await issueUploadTicket(tabId, pageUrl);
             await ensurePageReceiver(tabId);
             if (stored.navigation !== (navigationByTab.get(tabId) || 0)) fail('PAGE_CHANGED');
+            if (latestSuccessfulSyncByTab.get(tabId) !== stored.sequence) return;
             const response = await sendToTab(tabId, {
                 type: 'CODE_DATA',
                 title: stored.title,
                 code: stored.code,
+                language: stored.language,
                 uploadTicket,
                 pageUrl,
             });
@@ -1056,6 +1122,13 @@ chrome.webRequest.onCompleted.addListener(
                 error: publicError(error).error,
             }).catch(() => {});
         }
+    },
+    { urls: ['https://neetcode.io/api/*'] },
+);
+
+chrome.webRequest.onErrorOccurred.addListener(
+    details => {
+        syncCapturesByRequestId.delete(details.requestId);
     },
     { urls: ['https://neetcode.io/api/*'] },
 );
@@ -1088,6 +1161,10 @@ chrome.action.onClicked.addListener(async tab => {
 chrome.tabs.onRemoved.addListener(tabId => {
     delete pendingCodeByTab[tabId];
     navigationByTab.delete(tabId);
+    latestSuccessfulSyncByTab.delete(tabId);
+    for (const [id, capture] of syncCapturesByRequestId) {
+        if (capture.tabId === tabId) syncCapturesByRequestId.delete(id);
+    }
     for (const [ticket, entry] of uploadTickets) {
         if (entry.tabId === tabId) uploadTickets.delete(ticket);
     }
@@ -1097,6 +1174,10 @@ chrome.tabs.onUpdated.addListener((tabId, change) => {
     if (change.url || change.status === 'loading') {
         navigationByTab.set(tabId, (navigationByTab.get(tabId) || 0) + 1);
         delete pendingCodeByTab[tabId];
+        latestSuccessfulSyncByTab.delete(tabId);
+        for (const [id, capture] of syncCapturesByRequestId) {
+            if (capture.tabId === tabId) syncCapturesByRequestId.delete(id);
+        }
         for (const [ticket, entry] of uploadTickets) {
             if (entry.tabId === tabId) uploadTickets.delete(ticket);
         }

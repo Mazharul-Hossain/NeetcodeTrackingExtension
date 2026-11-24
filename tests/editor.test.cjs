@@ -5,22 +5,33 @@ const { workerFixture, problemSender, optionsSender } = require('./helpers/worke
 
 const pageUrl = problemSender.url;
 const fullCode = 'def solve():\n    # café\n    return 42\n' + '# more code\n'.repeat(1000);
-const model = (code = fullCode) => ({ isDisposed: () => false, getValue: () => code });
+const model = (code = fullCode, language = 'python') => ({
+    isDisposed: () => false,
+    getValue: () => code,
+    getLanguageId: () => language,
+});
 const editor = (value, visible = true, focused = false) => ({
     getDomNode: () => ({ isConnected: true, getClientRects: () => (visible ? [{}] : []) }),
     hasTextFocus: () => focused,
     getModel: () => value,
 });
 
-function read(api, url = pageUrl) {
+function read(api, url = pageUrl, snapshot = false) {
     const f = workerFixture();
     // Execute the serialized function in a separate page world, as Chrome does.
     const fn = vm.runInNewContext(`(${f.context.readEditorModel.toString()})`, {
         location: { href: url },
         monaco: { editor: api },
     });
-    return fn(pageUrl);
+    const result = fn(pageUrl);
+    return snapshot ? result : (result?.code ?? null);
 }
+
+test('model snapshot pairs the complete code with its own language', () => {
+    const snapshot = read({ getModels: () => [model(fullCode, 'python')] }, pageUrl, true);
+    assert.equal(snapshot.code, fullCode);
+    assert.equal(snapshot.language, 'python');
+});
 
 test('model capture preserves full multiline Unicode code and indentation regardless of DOM lines', () => {
     assert.equal(read({ getEditors: () => [editor(model())] }), fullCode);
@@ -69,12 +80,13 @@ test('worker reads only the authorized top frame in MAIN without supplying crede
             assert.deepEqual(Array.from(spec.target.frameIds), [0]);
             assert.deepEqual(Array.from(spec.args), [pageUrl]);
             assert.equal(spec.func, f.context.readEditorModel);
-            return [{ result: fullCode }];
+            return [{ result: { code: fullCode, language: 'python' } }];
         },
     };
     const result = await f.request({ type: 'GET_EDITOR_CODE', pageUrl }, problemSender);
     assert.equal(result.ok, true);
     assert.equal(result.code, fullCode);
+    assert.equal(result.language, 'python');
     for (const sender of [
         optionsSender,
         { ...problemSender, frameId: 1 },

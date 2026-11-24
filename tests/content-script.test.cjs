@@ -79,9 +79,11 @@ test('editor capture requests the full model and never reads a textarea or rende
     f.context.chrome.runtime.sendMessage = async message => {
         assert.equal(message.type, 'GET_EDITOR_CODE');
         assert.equal(message.pageUrl, f.context.location.href);
-        return { ok: true, code };
+        return { ok: true, code, language: 'python' };
     };
-    assert.equal(await f.context.getCode(f.context.location.href), code);
+    const snapshot = await f.context.getCode(f.context.location.href);
+    assert.equal(snapshot.code, code);
+    assert.equal(snapshot.language, 'python');
     f.context.chrome.runtime.sendMessage = async () => ({ ok: false });
     await assert.rejects(f.context.getCode(f.context.location.href));
 });
@@ -106,6 +108,58 @@ test('Markdown preserves paragraphs, Unicode and KaTeX source', () => {
         f.context.formatArticleComponent('Example', { childNodes: [paragraph] }),
         '# **Example**\n\nFind café $x^2$',
     );
+});
+
+test('Markdown preserves diagrams with absolute and relative image URLs and escaped alternative text', () => {
+    const image = (src, alt) => ({
+        nodeType: 1,
+        tagName: 'IMG',
+        textContent: '',
+        childNodes: [],
+        getAttribute: name => ({ src, alt })[name],
+    });
+    const f = contentFixture();
+    const markdown = f.context.formatArticleComponent('Graph', {
+        childNodes: [
+            image('/images/tree (1).png', 'Tree [left]'),
+            image('https://cdn.example.test/graph.svg', 'Graph edges'),
+        ],
+    });
+    assert.match(
+        markdown,
+        /!\[Tree \\\[left\\\]\]\(<https:\/\/neetcode\.io\/images\/tree%20\(1\)\.png>\)/,
+    );
+    assert.ok(markdown.includes('![Graph edges](<https://cdn.example.test/graph.svg>)'));
+});
+
+test('Markdown rejects executable or inline image URLs while retaining their alternative text', () => {
+    const f = contentFixture();
+    for (const src of ['javascript:alert(1)', 'data:image/svg+xml,<svg/>']) {
+        const image = {
+            nodeType: 1,
+            tagName: 'IMG',
+            textContent: '',
+            childNodes: [],
+            getAttribute: name => ({ src, alt: 'Diagram description' })[name],
+        };
+        const markdown = f.context.formatArticleComponent('Graph', { childNodes: [image] });
+        assert.ok(markdown.includes('Diagram description'));
+        assert.doesNotMatch(markdown, /javascript:|data:|<svg/);
+    }
+});
+
+test('image query backslashes cannot escape the closing Markdown destination delimiter', () => {
+    const f = contentFixture();
+    const image = {
+        nodeType: 1,
+        tagName: 'IMG',
+        textContent: '',
+        childNodes: [],
+        getAttribute: name =>
+            ({ src: 'https://example.test/tree.png?label=tail\\', alt: 'Tree' })[name],
+    };
+    const markdown = f.context.formatArticleComponent('Graph', { childNodes: [image] });
+    assert.ok(markdown.includes('![Tree](<https://example.test/tree.png?label=tail%5C>)'));
 });
 
 test('missing required markup times out and disconnects its observer', async () => {

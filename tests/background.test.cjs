@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const { backgroundFixture } = require('./helpers/extension-harness.cjs');
 const { configure } = require('./helpers/worker-harness.cjs');
 
-function capture(fixture, tabId, title, code) {
+function capture(fixture, tabId, title, code, language = 'Python') {
     fixture.chrome.webRequest.onBeforeRequest.fire({
         tabId,
         url: 'https://neetcode.io/api/executeCodeFunctionHttp',
@@ -16,7 +16,7 @@ function capture(fixture, tabId, title, code) {
             raw: [
                 {
                     bytes: new TextEncoder().encode(
-                        JSON.stringify({ data: { problemId: title, rawCode: code } }),
+                        JSON.stringify({ data: { problemId: title, rawCode: code, language } }),
                     ).buffer,
                 },
             ],
@@ -24,13 +24,85 @@ function capture(fixture, tabId, title, code) {
     });
 }
 
-function release(fixture, tabId, statusCode = 200) {
+function beginSync(fixture, tabId, requestId = `sync-${tabId}`) {
+    fixture.chrome.webRequest.onBeforeRequest.fire({
+        tabId,
+        requestId,
+        url: 'https://neetcode.io/api/githubFunctionHttp',
+    });
+    return requestId;
+}
+
+function completeSync(fixture, tabId, requestId, statusCode = 200) {
     return fixture.chrome.webRequest.onCompleted.fire({
         tabId,
+        requestId,
         url: 'https://neetcode.io/api/githubFunctionHttp',
         statusCode,
     });
 }
+
+function release(fixture, tabId, statusCode = 200) {
+    return completeSync(fixture, tabId, beginSync(fixture, tabId), statusCode);
+}
+
+test('sync completion delivers its own captured submission rather than a later run', async () => {
+    const f = backgroundFixture();
+    await configure(f);
+    capture(f, 7, 'two-sum', 'submitted A', 'Python');
+    const first = beginSync(f, 7, 'sync-A');
+    capture(f, 7, 'two-sum', 'unsubmitted B', 'JavaScript');
+    await completeSync(f, 7, first);
+    const saved = f.sent.find(args => args[1].type === 'CODE_DATA')[1];
+    assert.equal(saved.code, 'submitted A');
+    assert.equal(saved.language, 'Python');
+});
+
+test('out-of-order sync responses cannot replace a newer successful submission', async () => {
+    const f = backgroundFixture();
+    await configure(f);
+    capture(f, 7, 'two-sum', 'submitted A', 'Python');
+    beginSync(f, 7, 'sync-A');
+    capture(f, 7, 'two-sum', 'submitted B', 'JavaScript');
+    beginSync(f, 7, 'sync-B');
+    await completeSync(f, 7, 'sync-B');
+    await completeSync(f, 7, 'sync-A');
+    assert.deepEqual(
+        f.sent
+            .filter(args => args[1].type === 'CODE_DATA')
+            .map(args => [args[1].code, args[1].language]),
+        [['submitted B', 'JavaScript']],
+    );
+});
+
+test('a failed older sync does not discard the next captured execution', async () => {
+    const f = backgroundFixture();
+    await configure(f);
+    capture(f, 7, 'two-sum', 'A');
+    beginSync(f, 7, 'sync-A');
+    capture(f, 7, 'two-sum', 'B');
+    await completeSync(f, 7, 'sync-A', 500);
+    await release(f, 7);
+    assert.deepEqual(
+        f.sent.filter(args => args[1].type === 'CODE_DATA').map(args => args[1].code),
+        ['B'],
+    );
+});
+
+test('failed or cancelled sync requests are discarded without replay', async () => {
+    const f = backgroundFixture();
+    await configure(f);
+    capture(f, 7, 'two-sum', 'A');
+    beginSync(f, 7, 'sync-A');
+    f.chrome.webRequest.onErrorOccurred.fire({ requestId: 'sync-A' });
+    await completeSync(f, 7, 'sync-A');
+    assert.equal(f.sent.length, 0);
+    capture(f, 7, 'two-sum', 'B');
+    beginSync(f, 7, 'sync-B');
+    await f.request({ type: 'LOCK_VAULT' });
+    await completeSync(f, 7, 'sync-B');
+    assert.equal(f.sent.length, 0);
+});
 
 async function assertTabRouting(transform) {
     const f = backgroundFixture(transform);
@@ -286,10 +358,12 @@ test('failed sync responses discard captures without starting automatic saves', 
         const f = backgroundFixture();
         await configure(f);
         capture(f, 7, 'two-sum', 'synthetic code');
+        const requestId = beginSync(f, 7);
         await f.chrome.webRequest.onCompleted.fire({
             tabId: 7,
             url: 'https://neetcode.io/api/githubFunctionHttp',
             statusCode: status,
+            requestId,
         });
         assert.equal(f.sent.length, 0);
         await release(f, 7);

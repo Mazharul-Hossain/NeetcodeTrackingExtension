@@ -60,7 +60,7 @@ function workerFixture(overrides = {}) {
             },
         },
         storage: { local: area('local'), session: area('session') },
-        webRequest: { onBeforeRequest: event(), onCompleted: event() },
+        webRequest: { onBeforeRequest: event(), onCompleted: event(), onErrorOccurred: event() },
         action: { onClicked: event() },
         tabs: {
             onRemoved: event(),

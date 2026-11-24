@@ -59,6 +59,65 @@ function fixture(response) {
     );
     return { ...f, messages };
 }
+
+test('automatic saves retain the submitted language when the current selector changes', async () => {
+    const f = fixture({ ok: true });
+    const original = f.context.document.querySelector;
+    f.context.document.querySelector = selector =>
+        selector === '.selected-language' ? { textContent: 'JavaScript' } : original(selector);
+    await f.context.processAndUpload(
+        'def solve():\n    return 42',
+        'auto',
+        'ticket',
+        null,
+        'Python',
+    );
+    assert.equal(f.messages[0].payload.files[0].extension, 'py');
+});
+
+test('manual saves use the language captured with the editor model rather than a later selector', async () => {
+    const f = fixture({ ok: true });
+    f.context.chrome.runtime.sendMessage = async message => {
+        f.messages.push(message);
+        return message.type === 'GET_EDITOR_CODE'
+            ? { ok: true, code: 'def solve():\n    return 42', language: 'python' }
+            : { ok: true };
+    };
+    const original = f.context.document.querySelector;
+    f.context.document.querySelector = selector =>
+        selector === '.selected-language' ? { textContent: 'JavaScript' } : original(selector);
+    await f.context.saveManual({ pageUrl: f.context.location.href, uploadTicket: 'ticket' });
+    assert.equal(
+        f.messages.find(message => message.type === 'UPLOAD_PROBLEM').payload.files[0].extension,
+        'py',
+    );
+});
+
+test('a missing submitted language never falls back to the current language selector', async () => {
+    const f = fixture({ ok: true });
+    await f.context.processAndUpload('def solve(): pass', 'auto', 'ticket', null, null);
+    assert.equal(f.messages.length, 0);
+    assert.match(f.context.toasts.at(-1).message, /submitted language.*Click the extension/);
+});
+
+test('diagram references survive extraction into the uploaded problem Markdown', async () => {
+    const f = fixture({ ok: true });
+    const original = f.context.document.querySelector;
+    const image = {
+        nodeType: 1,
+        tagName: 'IMG',
+        textContent: '',
+        childNodes: [],
+        getAttribute: name => ({ src: '/images/tree.png', alt: 'Tree diagram' })[name],
+    };
+    f.context.document.querySelector = selector =>
+        selector === 'main.my-article-component-container'
+            ? { childNodes: [image], querySelector: () => null }
+            : original(selector);
+    await f.context.processAndUpload('code', 'manual');
+    const markdown = f.messages[0].payload.files.find(file => file.kind === 'problem').content;
+    assert.ok(markdown.includes('![Tree diagram](<https://neetcode.io/images/tree.png>)'));
+});
 test('uploads optional solution and exact enriched problem data in one credential-free message', async () => {
     const f = fixture({ ok: true, updated: false });
     await f.context.processAndUpload('café', 'manual', 'synthetic-upload-ticket');
@@ -117,7 +176,7 @@ test('locked upload offers settings action and does not report success or replay
 test('manual trigger acknowledges acceptance immediately instead of leaving sender unanswered', async () => {
     const f = fixture({ ok: true });
     f.evaluate(
-        'globalThis.jobs = []; getCode = () => "synthetic code"; processAndUpload = async (...args) => { jobs.push(args); };',
+        'globalThis.jobs = []; getCode = () => ({ code: "synthetic code", language: "python" }); processAndUpload = async (...args) => { jobs.push(args); };',
     );
     let acknowledgement;
     f.context.location = { href: 'https://neetcode.io/problems/two-sum' };
@@ -139,6 +198,7 @@ test('manual trigger acknowledges acceptance immediately instead of leaving send
         'manual',
         'synthetic-ticket',
         f.context.location.href,
+        'python',
     ]);
 });
 
@@ -212,6 +272,7 @@ test('automatic trigger accepts the captured route independently of backend prob
             pageUrl,
             title: 'backend-id-123',
             code: 'solution',
+            language: 'Python',
             uploadTicket: 'ticket',
         },
         { id: 'extension' },
@@ -220,7 +281,13 @@ test('automatic trigger accepts the captured route independently of backend prob
         },
     );
     assert.equal(result?.accepted, true);
-    assert.deepEqual(Array.from(f.context.jobs[0]), ['solution', 'auto', 'ticket', pageUrl]);
+    assert.deepEqual(Array.from(f.context.jobs[0]), [
+        'solution',
+        'auto',
+        'ticket',
+        pageUrl,
+        'Python',
+    ]);
 });
 
 test('problem without optional topic markup still uploads successfully', async () => {
@@ -331,7 +398,9 @@ test('manual save sends complete model code unchanged through to the upload', as
     const code = 'def solve():\n    return "café"\n' + '# more code\n'.repeat(1000);
     f.context.chrome.runtime.sendMessage = async message => {
         f.messages.push(message);
-        return message.type === 'GET_EDITOR_CODE' ? { ok: true, code } : { ok: true };
+        return message.type === 'GET_EDITOR_CODE'
+            ? { ok: true, code, language: 'python' }
+            : { ok: true };
     };
     await f.context.saveManual({
         pageUrl: f.context.location.href,

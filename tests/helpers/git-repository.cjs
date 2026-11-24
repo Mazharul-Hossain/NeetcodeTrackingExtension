@@ -44,8 +44,15 @@ function gitRepository({ existing = {}, branch = 'main', empty = false } = {}) {
             assert.equal(init.method, 'GET');
             assert.equal(parsed.searchParams.get('ref'), 'head-sha');
             const file = decodeURIComponent(path.slice('/contents/'.length));
-            return Object.hasOwn(files, file)
-                ? response(200, { type: 'file', sha: 'existing-sha' })
+            if (Object.hasOwn(files, file)) {
+                return response(200, { type: 'file', sha: 'existing-sha' });
+            }
+            const children = Object.keys(files).filter(name => name.startsWith(`${file}/`));
+            return children.length
+                ? response(
+                      200,
+                      children.map(name => ({ type: 'file', path: name })),
+                  )
                 : response(404);
         }
         if (path === '/git/blobs') {

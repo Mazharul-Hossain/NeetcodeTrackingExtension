@@ -400,6 +400,23 @@ function formatArticleComponent(title, articleComponent, titleHeading = null) {
                     }
                     break;
 
+                case 'img': {
+                    const alt = (node.getAttribute('alt') || '')
+                        .replace(/\\/g, '\\\\')
+                        .replaceAll('[', '\\[')
+                        .replaceAll(']', '\\]')
+                        .replace(/[\r\n]+/g, ' ');
+                    const source = node.currentSrc || node.getAttribute('src');
+                    if (!source) return alt;
+                    try {
+                        const url = new URL(source, location.href);
+                        if (!['https:', 'http:'].includes(url.protocol)) return alt;
+                        return `![${alt}](<${url.href.replaceAll('\\', '%5C')}>)\n\n`;
+                    } catch {
+                        return alt;
+                    }
+                }
+
                 case 'br':
                     return '\n';
 
@@ -475,12 +492,21 @@ function getCategory() {
 // - formatting markdown
 // - uploading to GitHub
 // - showing toast messages
-async function processAndUpload(code, source = 'auto', uploadTicket = null, pageUrl = null) {
+async function processAndUpload(
+    code,
+    source = 'auto',
+    uploadTicket = null,
+    pageUrl = null,
+    language = document.querySelector('.selected-language')?.textContent,
+) {
     const controller = new AbortController();
     const cancel = () => controller.abort();
     const deadline = setTimeout(cancel, 10000);
     globalThis.addEventListener?.('pagehide', cancel, { once: true });
     try {
+        if (code && code.trim() && language === null) {
+            throw Object.assign(new Error(), { code: 'CAPTURE_LANGUAGE_UNAVAILABLE' });
+        }
         // Wait for required DOM elements
         const articleComponent = await waitForElement(
             'querySelector',
@@ -498,11 +524,6 @@ async function processAndUpload(code, source = 'auto', uploadTicket = null, page
             articleComponent,
             questionTitle,
         );
-        const languageElement = await waitForElement(
-            'querySelector',
-            '.selected-language',
-            controller.signal,
-        );
         clearTimeout(deadline);
 
         // If no code provided, warn but continue
@@ -515,7 +536,7 @@ async function processAndUpload(code, source = 'auto', uploadTicket = null, page
             code,
             questionTitle.textContent,
             markdownContent,
-            languageElement.textContent,
+            language,
             uploadTicket,
             pageUrl,
         );
@@ -548,13 +569,15 @@ async function processAndUpload(code, source = 'auto', uploadTicket = null, page
         }
     } catch (error) {
         const failMessage =
-            error?.code === 'UNSUPPORTED_LANGUAGE'
-                ? 'This language is not supported. No files were saved.'
-                : error?.code === 'PAGE_NOT_READY'
-                  ? 'Problem details did not load. Try again when the NeetCode page finishes loading.'
-                  : source === 'manual'
-                    ? 'Manual save failed'
-                    : 'Failed to add to GitHub';
+            error?.code === 'CAPTURE_LANGUAGE_UNAVAILABLE'
+                ? 'Could not determine the submitted language. Click the extension to save the current editor instead.'
+                : error?.code === 'UNSUPPORTED_LANGUAGE'
+                  ? 'This language is not supported. No files were saved.'
+                  : error?.code === 'PAGE_NOT_READY'
+                    ? 'Problem details did not load. Try again when the NeetCode page finishes loading.'
+                    : source === 'manual'
+                      ? 'Manual save failed'
+                      : 'Failed to add to GitHub';
 
         showToast(failMessage, '#e74c3c');
     } finally {
@@ -565,15 +588,23 @@ async function processAndUpload(code, source = 'auto', uploadTicket = null, page
 
 async function getCode(pageUrl) {
     const result = await chrome.runtime.sendMessage({ type: 'GET_EDITOR_CODE', pageUrl });
-    if (!result?.ok || typeof result.code !== 'string') throw new Error('Editor unavailable');
-    return result.code;
+    if (!result?.ok || typeof result.code !== 'string' || typeof result.language !== 'string') {
+        throw new Error('Editor unavailable');
+    }
+    return { code: result.code, language: result.language };
 }
 
 async function saveManual(message) {
     try {
-        const code = await getCode(message.pageUrl);
+        const snapshot = await getCode(message.pageUrl);
         if (location.href !== message.pageUrl) throw new Error('Page changed');
-        await processAndUpload(code, 'manual', message.uploadTicket, message.pageUrl);
+        await processAndUpload(
+            snapshot.code,
+            'manual',
+            message.uploadTicket,
+            message.pageUrl,
+            snapshot.language,
+        );
     } catch {
         showToast(
             'Could not read the complete editor code. No files were saved. Try again on the problem page.',
@@ -611,7 +642,13 @@ if (globalThis.__neetcodeTrackingReceiverId !== chrome.runtime.id) {
                 sendResponse?.({ accepted: false, reason: 'PAGE_CHANGED' });
                 return false;
             }
-            void processAndUpload(message.code, 'auto', message.uploadTicket, pageUrl);
+            void processAndUpload(
+                message.code,
+                'auto',
+                message.uploadTicket,
+                pageUrl,
+                message.language ?? null,
+            );
         } else if (message.type === 'MANUAL_TRIGGER') {
             if (message.pageUrl !== location.href) {
                 sendResponse?.({ accepted: false, reason: 'PAGE_CHANGED' });

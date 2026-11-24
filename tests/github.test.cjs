@@ -125,6 +125,31 @@ test('the new folder wins when it exists, and a missing legacy folder is never c
     ]);
 });
 
+for (const existingName of ['solution.py', 'README.md']) {
+    test(`a new folder containing ${existingName} wins even when its problem Markdown was deleted`, async () => {
+        const change = {
+            title: 'two-sum-ii-input-sorted',
+            legacyTitle: 'two-sum-ii---input-sorted',
+        };
+        const current = `${payload.category}/${change.title}`;
+        const legacy = `${payload.category}/${change.legacyTitle}`;
+        const server = gitRepository({
+            existing: {
+                [`${current}/${existingName}`]: 'current content',
+                [`${legacy}/problem.md`]: 'legacy notes',
+                [`${legacy}/solution.py`]: 'legacy solution',
+            },
+        });
+        const { result } = await save(server, change);
+        assert.equal(result.ok, true);
+        assert.equal(server.files[`${current}/solution.py`], 'café');
+        assert.equal(server.files[`${current}/problem.md`], '# Problem');
+        assert.equal(server.files[`${legacy}/solution.py`], 'legacy solution');
+        assert.equal(server.files[`${legacy}/problem.md`], 'legacy notes');
+        assert.equal(server.publications, 1);
+    });
+}
+
 test('description-only saves create one commit or skip existing Markdown without writes', async () => {
     const change = { files: payload.files.filter(file => file.kind === 'problem') };
     const missing = gitRepository();
