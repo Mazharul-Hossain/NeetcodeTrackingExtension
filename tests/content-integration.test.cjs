@@ -33,11 +33,17 @@ function fixture(response) {
         },
         document: {
             body: { innerText: 'Arrays' },
-            querySelectorAll: () => [],
+            querySelectorAll: selector =>
+                selector === 'h1'
+                    ? [{ textContent: 'Two Sum', closest: () => null, getClientRects: () => [{}] }]
+                    : [],
             querySelector: selector =>
                 ({
                     h1: { textContent: 'Two Sum' },
-                    'main.my-article-component-container': { childNodes: [] },
+                    'main.my-article-component-container': {
+                        childNodes: [],
+                        querySelector: () => null,
+                    },
                     '.selected-language': { textContent: 'Python' },
                     '.company-tags-container': {
                         querySelectorAll: () => [
@@ -323,7 +329,6 @@ test('navigation while awaiting the editor prevents a manual upload', async () =
 test('manual save sends complete model code unchanged through to the upload', async () => {
     const f = fixture({ ok: true });
     const code = 'def solve():\n    return "café"\n' + '# more code\n'.repeat(1000);
-    f.context.document.querySelectorAll = () => [];
     f.context.chrome.runtime.sendMessage = async message => {
         f.messages.push(message);
         return message.type === 'GET_EDITOR_CODE' ? { ok: true, code } : { ok: true };

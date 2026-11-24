@@ -21,7 +21,9 @@ async function waitForElement(getElement, identifier, signal) {
     const unavailable = () =>
         Object.assign(new Error('Page is not ready'), { code: 'PAGE_NOT_READY' });
     if (signal?.aborted) throw unavailable();
-    const targetElement = document[getElement](identifier);
+    const read = () =>
+        typeof getElement === 'function' ? getElement() : document[getElement](identifier);
+    const targetElement = read();
     if (targetElement) {
         return targetElement;
     }
@@ -39,7 +41,7 @@ async function waitForElement(getElement, identifier, signal) {
         };
         const cancel = () => finish(null);
         const observer = new MutationObserver(() => {
-            const element = document[getElement](identifier);
+            const element = read();
             if (element) finish(element);
         });
         observer.observe(document.body || document.documentElement, {
@@ -166,9 +168,41 @@ async function waitForTopics() {
     );
 }
 
+function slugProblemTitle(title) {
+    let slug = title
+        .normalize('NFC')
+        .trim()
+        .toLowerCase()
+        .replace(/[<>:"/\\|?*]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/\p{Cc}/gu, '')
+        .replace(/-+/g, '-')
+        .replace(/^[. -]+|[. -]+$/g, '');
+    if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(slug)) slug = `problem-${slug}`;
+    // Truncate after reserved-name prefixes, without splitting a surrogate pair.
+    slug = slug
+        .slice(0, 200)
+        .replace(/[\uD800-\uDBFF]$/, '')
+        .replace(/[. -]+$/g, '');
+    if (!slug) throw Object.assign(new Error(), { code: 'PAGE_NOT_READY' });
+    return slug;
+}
+
+function getProblemHeading(article) {
+    const scoped = article.querySelector('h1');
+    if (scoped) return scoped;
+    // A unique visible content heading is safer than the first h1 in navigation.
+    const headings = Array.from(document.querySelectorAll('h1')).filter(
+        heading =>
+            !heading.closest('nav, aside, footer, [role="navigation"]') &&
+            heading.getClientRects().length > 0,
+    );
+    return headings.length === 1 ? headings[0] : null;
+}
+
 async function buildUploadPayload(code, questionTitle, questionContent, language) {
     const category = getCategory();
-    const title = questionTitle.replaceAll(' ', '-').toLowerCase().trim();
+    const title = slugProblemTitle(questionTitle);
     const date = getDate();
     const topics = await waitForTopics();
     const enrichedMarkdown = `---
@@ -417,10 +451,14 @@ async function processAndUpload(code, source = 'auto', uploadTicket = null, page
     globalThis.addEventListener?.('pagehide', cancel, { once: true });
     try {
         // Wait for required DOM elements
-        const questionTitle = await waitForElement('querySelector', 'h1', controller.signal);
         const articleComponent = await waitForElement(
             'querySelector',
             'main.my-article-component-container',
+            controller.signal,
+        );
+        const questionTitle = await waitForElement(
+            () => getProblemHeading(articleComponent),
+            null,
             controller.signal,
         );
         // Convert problem description into markdown
@@ -432,8 +470,6 @@ async function processAndUpload(code, source = 'auto', uploadTicket = null, page
         );
         clearTimeout(deadline);
 
-        // Extract and normalize title for file path
-        const title = questionTitle.textContent.replaceAll(' ', '-').toLowerCase().trim();
         // If no code provided, warn but continue
         if (!code) {
             showToast('No code found — saving problem only', '#f39c12');
@@ -442,7 +478,7 @@ async function processAndUpload(code, source = 'auto', uploadTicket = null, page
         // Upload everything to GitHub
         const uploadResult = await addContentToGitHub(
             code,
-            title,
+            questionTitle.textContent,
             markdownContent,
             languageElement.textContent,
             uploadTicket,

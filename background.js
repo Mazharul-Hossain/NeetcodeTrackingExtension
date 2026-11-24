@@ -488,8 +488,10 @@ function validateUploadPayload(payload) {
         !exactKeys(payload, ['category', 'title', 'date', 'files']) ||
         !['System Design', 'Data Structures & Algorithms'].includes(payload.category) ||
         typeof payload.title !== 'string' ||
-        !/^[^/\\\x00-\x1f\x7f]{1,200}$/.test(payload.title) ||
+        !/^[^<>:"/\\|?*\x00-\x1f\x7f]{1,200}$/.test(payload.title) ||
         ['.', '..'].includes(payload.title) ||
+        /[. ]$/.test(payload.title) ||
+        /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(payload.title) ||
         typeof payload.date !== 'string' ||
         !/^\d{4}-\d{2}-\d{2}$/.test(payload.date) ||
         Number.isNaN(Date.parse(payload.date)) ||

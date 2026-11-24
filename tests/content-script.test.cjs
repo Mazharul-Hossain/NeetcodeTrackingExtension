@@ -165,3 +165,41 @@ test('absent optional topics do not block a problem save', { timeout: 200 }, asy
     });
     assert.deepEqual(Array.from(await f.context.waitForTopics()), []);
 });
+
+test('problem slugs trim once, collapse dashes and avoid Windows-invalid names', () => {
+    const f = contentFixture();
+    for (const [title, expected] of [
+        ['  Two   Sum  ', 'two-sum'],
+        [' A---B :?*<>"/\\| ', 'a-b'],
+        ['...Hello...  ', 'hello'],
+        ['CON', 'problem-con'],
+        ['LPT1.txt', 'problem-lpt1.txt'],
+        ['café\t問題', 'café-問題'],
+    ]) {
+        assert.equal(f.context.slugProblemTitle(title), expected);
+    }
+    for (const title of [' ', ':?*', '...']) assert.throws(() => f.context.slugProblemTitle(title));
+    assert.ok(f.context.slugProblemTitle('x'.repeat(300)).length <= 200);
+    assert.ok(f.context.slugProblemTitle('CON.' + 'x'.repeat(250)).length <= 200);
+    const unicode = f.context.slugProblemTitle('x'.repeat(199) + '😀');
+    assert.equal(unicode, 'x'.repeat(199));
+    assert.doesNotThrow(() => encodeURIComponent(unicode));
+});
+
+test('problem heading prefers the article and refuses ambiguous page headings', () => {
+    const scoped = { textContent: 'Problem title' };
+    const visible = textContent => ({
+        textContent,
+        closest: () => null,
+        getClientRects: () => [{}],
+    });
+    let headings = [visible('Problem title'), { closest: () => ({}), getClientRects: () => [{}] }];
+    const f = contentFixture({ document: { querySelectorAll: () => headings } });
+    assert.equal(f.context.getProblemHeading({ querySelector: () => scoped }), scoped);
+    const article = { querySelector: () => null };
+    assert.equal(f.context.getProblemHeading(article), headings[0]);
+    headings = [visible('First'), visible('Second')];
+    assert.equal(f.context.getProblemHeading(article), null);
+    headings = [{ closest: () => null, getClientRects: () => [] }];
+    assert.equal(f.context.getProblemHeading(article), null);
+});

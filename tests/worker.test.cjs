@@ -174,6 +174,10 @@ test('arbitrary destinations, nested frames and traversal payloads are rejected'
     await configure(f);
     for (const bad of [
         { ...payload, title: '../secret' },
+        ...['bad:title', 'bad?title', 'bad*title', 'trailing.', 'CON', 'LPT1.txt'].map(title => ({
+            ...payload,
+            title,
+        })),
         { ...payload, url: 'https://evil.invalid' },
         { ...payload, files: [{ kind: 'problem', extension: 'html', content: 'x' }] },
     ]) {
