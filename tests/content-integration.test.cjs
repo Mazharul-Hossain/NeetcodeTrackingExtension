@@ -344,3 +344,13 @@ test('manual save sends complete model code unchanged through to the upload', as
     assert.equal(f.messages[1].payload.files[0].content, code);
     assert.equal(f.messages[1].uploadTicket, 'synthetic-ticket');
 });
+
+test('manual and automatic no-op saves report that the problem is already saved', async () => {
+    for (const source of ['manual', 'auto']) {
+        for (const code of ['', 'unchanged synthetic code']) {
+            const f = fixture({ ok: true, updated: false, unchanged: true });
+            await f.context.processAndUpload(code, source);
+            assert.equal(f.context.toasts.at(-1).message, 'Already saved, nothing to update.');
+        }
+    }
+});

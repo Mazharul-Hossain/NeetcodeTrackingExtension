@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
 
 // Synthetic Git Data API with branch-visible files changed only by PATCH refs.
 function gitRepository({ existing = {}, branch = 'main', empty = false } = {}) {
@@ -8,6 +9,15 @@ function gitRepository({ existing = {}, branch = 'main', empty = false } = {}) {
     const commits = new Map();
     const writes = [];
     let publications = 0;
+    // Content-addressed snapshots model tree equality; these are synthetic, not Git's wire format.
+    const treeHash = snapshot =>
+        createHash('sha1')
+            .update(
+                JSON.stringify(
+                    Object.entries(snapshot).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+                ),
+            )
+            .digest('hex');
     const response = (status, data = {}) => ({
         status,
         ok: status >= 200 && status < 300,
@@ -25,7 +35,7 @@ function gitRepository({ existing = {}, branch = 'main', empty = false } = {}) {
             return empty ? response(404) : response(200, { object: { sha: 'head-sha' } });
         }
         if (path === '/git/commits/head-sha') {
-            return response(200, { tree: { sha: 'base-tree-sha' } });
+            return response(200, { tree: { sha: treeHash(files) } });
         }
         if (path.startsWith('/contents/')) {
             assert.equal(init.method, 'GET');
@@ -43,9 +53,12 @@ function gitRepository({ existing = {}, branch = 'main', empty = false } = {}) {
             return response(201, { sha });
         }
         if (path === '/git/trees') {
-            assert.equal(body.base_tree, 'base-tree-sha');
-            trees.set('new-tree-sha', body.tree);
-            return response(201, { sha: 'new-tree-sha' });
+            assert.equal(body.base_tree, treeHash(files));
+            const snapshot = { ...files };
+            for (const entry of body.tree) snapshot[entry.path] = blobs.get(entry.sha);
+            const sha = treeHash(snapshot);
+            trees.set(sha, body.tree);
+            return response(201, { sha });
         }
         if (path === '/git/commits') {
             assert.deepEqual(body.parents, ['head-sha']);

@@ -705,7 +705,13 @@ async function uploadProblem(payload, revision, uploadTicket, sender) {
         if (!skipped) changes.push({ file, path });
     }
     const updated = files.some(file => file.updated);
-    if (!changes.length) return { ok: true, updated, files };
+    const unchanged = {
+        ok: true,
+        updated: false,
+        unchanged: true,
+        files: files.map(file => ({ ...file, updated: false, skipped: true })),
+    };
+    if (!changes.length) return unchanged;
     const tree = [];
     for (const { file, path } of changes) {
         const blob = await request('/git/blobs', 'POST', {
@@ -715,6 +721,7 @@ async function uploadProblem(payload, revision, uploadTicket, sender) {
         tree.push({ path, mode: '100644', type: 'blob', sha: githubSha(blob) });
     }
     const newTree = githubSha(await request('/git/trees', 'POST', { base_tree: baseTree, tree }));
+    if (newTree === baseTree) return unchanged;
     const identity = { name: settings.committerName, email: settings.committerEmail };
     const commit = githubSha(
         await request('/git/commits', 'POST', {
@@ -733,7 +740,7 @@ async function uploadProblem(payload, revision, uploadTicket, sender) {
         true,
     );
     if (published.status !== 200) fail(published.status === 404 ? 'CONFLICT' : 'GITHUB_ERROR');
-    return { ok: true, updated, files };
+    return { ok: true, updated, unchanged: false, files };
 }
 
 // Runs in the page world without credentials or extension state. Never scrape rendered lines.

@@ -499,7 +499,9 @@ async function processAndUpload(code, source = 'auto', uploadTicket = null, page
         if (uploadResult?.ok) {
             let message;
 
-            if (source === 'manual') {
+            if (uploadResult.unchanged) {
+                message = 'Already saved, nothing to update.';
+            } else if (source === 'manual') {
                 message = uploadResult.updated ? 'Updated via click' : 'Saved via click';
             } else {
                 message = uploadResult.updated

@@ -85,6 +85,7 @@ test('description-only saves create one commit or skip existing Markdown without
     const { result } = await save(existing, change);
     assert.equal(result.ok, true);
     assert.equal(result.files[0].skipped, true);
+    assert.equal(result.unchanged, true);
     assert.equal(existing.writes.length, 0);
     assert.equal(existing.files[problemPath], 'Keep synthetic notes');
 });
@@ -187,4 +188,31 @@ test('locking during preparation prevents publication and leaves the branch unch
     assert.equal(result.error.code, 'SETTINGS_CHANGED');
     assert.equal(server.publications, 0);
     assert.deepEqual(server.files, {});
+});
+
+test('saving identical code twice does not create or publish an empty second commit', async () => {
+    const server = gitRepository();
+    const first = await save(server);
+    assert.equal(first.result.unchanged, false);
+    const before = server.writes.length;
+    const second = await save(server);
+    assert.equal(second.result.ok, true);
+    assert.equal(second.result.unchanged, true);
+    assert.equal(second.result.updated, false);
+    assert.ok(second.result.files.every(file => file.skipped && !file.updated));
+    assert.deepEqual(
+        server.writes.slice(before).map(write => write.path),
+        ['/git/blobs', '/git/trees'],
+    );
+    assert.equal(server.publications, 1);
+    assert.equal(server.commits.size, 1);
+    assert.equal(server.files[solutionPath], 'café');
+});
+
+test('unchanged code still creates a commit when the problem Markdown is missing', async () => {
+    const server = gitRepository({ existing: { [solutionPath]: 'café' } });
+    const { result } = await save(server);
+    assert.equal(result.unchanged, false);
+    assert.equal(server.publications, 1);
+    assert.equal(server.files[problemPath], '# Problem');
 });
