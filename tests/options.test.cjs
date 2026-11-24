@@ -297,3 +297,45 @@ test('changed vault invalidates dirty fields and discards any unsaved token unti
     assert.equal(f.node('github-repository').value, 'another-repo');
     assert.equal(f.node('save-settings').disabled, false);
 });
+
+for (const action of ['handleUnlock', 'handleLock']) {
+    test(`${action} cannot pair stale edited fields with another tab's settings version`, async () => {
+        const worker = workerFixture();
+        await configure(worker, false);
+        const f = await optionsFixture({ worker });
+        f.node('committer-name').value = 'Pending local name';
+        const expectedVersion = worker.persisted.local.githubSettingsV2.recordGeneration;
+        await worker.request({
+            type: 'SAVE_SETTINGS',
+            settings: { ...fields, token: '', repoName: 'new-repository' },
+            expectedVersion,
+        });
+        const refreshing = f.context.loadSettings(false);
+        await f.context[action]();
+        await refreshing;
+        assert.equal(f.node('save-settings').disabled, true);
+        assert.match(f.node('settings-status').textContent, /another tab|reload settings/i);
+        await f.context.handleSave({ preventDefault() {} });
+        assert.equal(worker.persisted.local.githubSettingsV2.repoName, 'new-repository');
+        await f.context.loadSettings(true);
+        assert.equal(f.node('github-repository').value, 'new-repository');
+        assert.equal(f.node('save-settings').disabled, false);
+    });
+
+    test(`${action} refreshes pristine public fields before adopting a newer settings version`, async () => {
+        const worker = workerFixture();
+        await configure(worker, false);
+        const f = await optionsFixture({ worker });
+        await worker.request({
+            type: 'SAVE_SETTINGS',
+            settings: { ...fields, token: '', repoName: 'new-repository' },
+            expectedVersion: worker.persisted.local.githubSettingsV2.recordGeneration,
+        });
+        await f.context[action]();
+        assert.equal(f.node('github-repository').value, 'new-repository');
+        f.node('committer-name').value = 'Updated name';
+        await f.context.handleSave({ preventDefault() {} });
+        assert.equal(worker.persisted.local.githubSettingsV2.repoName, 'new-repository');
+        assert.equal(worker.persisted.local.githubSettingsV2.committerName, 'Updated name');
+    });
+}

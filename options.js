@@ -62,7 +62,19 @@ function showStatus(message, isError = false) {
 }
 
 function renderSettingsSummary(settings, restoreFields = true) {
-    currentSummary = settings;
+    const changed = settings?.recordGeneration !== currentSummary?.recordGeneration;
+    if (!restoreFields && changed && hasDirtyFields()) {
+        // Vault state may refresh, but edited fields must keep their original save version.
+        currentSummary = {
+            ...currentSummary,
+            hasToken: settings?.hasToken,
+            isUnlocked: settings?.isUnlocked,
+        };
+        markFormStale();
+    } else {
+        restoreFields ||= changed;
+        currentSummary = settings;
+    }
     if (restoreFields) {
         for (const [key, id] of Object.entries(fieldIds)) {
             element(id).value = key === 'token' ? '' : settings?.[key] || '';
@@ -78,6 +90,7 @@ function renderSettingsSummary(settings, restoreFields = true) {
           : 'Locked. Unlock with your passkey PIN to save problems.';
     element('github-token').required = !settings?.hasToken;
     setBusy(busy);
+    return !formStale;
 }
 
 function setBusy(value) {
@@ -281,8 +294,9 @@ async function handleUnlock() {
         assertCurrent(revision);
         const result = await send({ type: 'COMPLETE_VAULT_UNLOCK', unlockProof: proof });
         assertCurrent(revision);
-        renderSettingsSummary(result.settings, false);
-        showStatus('Unlocked for this browser session. Return to NeetCode and save again.');
+        if (renderSettingsSummary(result.settings, false)) {
+            showStatus('Unlocked for this browser session. Return to NeetCode and save again.');
+        }
     });
 }
 
@@ -292,8 +306,7 @@ async function handleLock() {
         const result = await send({ type: 'LOCK_VAULT' });
         assertCurrent(revision);
         element('github-token').value = '';
-        renderSettingsSummary(result.settings, false);
-        showStatus('Token locked.');
+        if (renderSettingsSummary(result.settings, false)) showStatus('Token locked.');
     });
 }
 
