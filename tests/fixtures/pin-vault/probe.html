@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NeetCode PIN feasibility test</title>
+</head>
+<body>
+  <main>
+    <h1>PIN-assisted encryption compatibility test</h1>
+    <p>This isolated test uses a fixed synthetic message. Do not enter a GitHub token here.</p>
+    <p>Enrollment creates a test passkey in the provider you choose. Select a provider offering a PIN.
+      Only encrypted test data and public credential metadata are stored by this fixture.</p>
+    <ol>
+      <li>Enroll and encrypt. Complete the browser/provider prompts yourself.</li>
+      <li>After success, fully exit and restart Chrome. Return to this extension's Options page.</li>
+      <li>Choose Unlock and verify, and complete the PIN prompt yourself.</li>
+    </ol>
+    <button id="enroll" type="button">Enroll and encrypt test data</button>
+    <button id="unlock" type="button">Unlock and verify</button>
+    <p id="status" role="status" aria-live="polite">Ready. No real credentials are needed.</p>
+    <p>After testing, remove this fixture from Chrome. Remove its test passkey separately from the
+      provider if desired; uninstalling an extension does not delete a passkey.</p>
+  </main>
+  <script src="probe.js"></script>
+</body>
+</html>

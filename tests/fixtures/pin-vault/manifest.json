@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "NeetCode PIN feasibility test",
+  "version": "0.0.1",
+  "minimum_chrome_version": "122",
+  "description": "Tests passkey PRF encryption with synthetic data only.",
+  "permissions": ["storage"],
+  "background": { "service_worker": "open-probe.js" },
+  "options_ui": { "page": "probe.html", "open_in_tab": true },
+  "action": { "default_title": "Open PIN feasibility test" }
+}
