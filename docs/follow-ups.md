@@ -5,7 +5,7 @@ Updated November 24, 2026. Open entries record decisions or verification still n
 | ID | Finding | Status | Next step |
 | --- | --- | --- | --- |
 | DATE-001 | `created:` and commit-message dates use UTC. Evening saves in New York can therefore have the following calendar date. | Open preference decision; current behavior is documented and unchanged. | Decide whether dates should follow the device's local timezone. If changed, cover both sides of local midnight and UTC midnight in tests and update the README. Preserve existing Markdown creation dates. |
-| REF-001 | Slash-containing default branches, such as `solutions/practice`, are encoded as `heads/solutions%2Fpractice`. Synthetic tests accept this form; real GitHub compatibility has not been verified. | Open verification question; no confirmed failure. | Test ref lookup and non-forced publication on an initialized disposable repository with a slash-containing default branch. Record the result in the [browser verification checklist](verification/2026-11-24-save-correctness.md). Change encoding only if evidence warrants it. |
+| REF-001 | Slash-containing default branches, such as `solutions/practice`, were encoded as `heads/solutions%2Fpractice`, a form GitHub does not document. | Code changed: refs now use the documented `heads/solutions/practice` form, encoding each branch segment separately. Live verification still pending. | Test ref lookup and non-forced publication on an initialized disposable repository with a slash-containing default branch, and record the result in the [browser verification checklist](verification/2026-11-24-save-correctness.md). |
 
 ## Resolved feedback issue
 

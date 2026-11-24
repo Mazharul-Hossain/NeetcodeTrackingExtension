@@ -27,6 +27,11 @@ test('new solutions and descriptions publish in one commit with UTF-8 content an
     const server = gitRepository({ branch: 'solutions/practice' });
     const { f, result } = await save(server);
     assert.equal(result.ok, true);
+    assert.ok(f.calls.some(call => call[0].endsWith('/git/ref/heads/solutions/practice')));
+    assert.equal(
+        f.calls.some(call => call[0].includes('%2F')),
+        false,
+    );
     assert.equal(result.updated, false);
     assert.equal(server.publications, 1);
     assert.equal(server.files[solutionPath], 'café');
@@ -75,6 +80,51 @@ test('repeat saves update the solution and preserve existing notes, front matter
     );
 });
 
+test('saves reuse an existing folder from the old naming rules and keep its notes', async () => {
+    const legacyFolder = `${payload.category}/two-sum-ii---input:-sorted?`;
+    const change = { title: 'two-sum-ii-input-sorted', legacyTitle: 'two-sum-ii---input:-sorted?' };
+    const server = gitRepository({
+        existing: {
+            [`${legacyFolder}/solution.py`]: 'old solution',
+            [`${legacyFolder}/problem.md`]: 'Legacy synthetic notes',
+        },
+    });
+    const { result } = await save(server, change);
+    assert.equal(result.ok, true);
+    assert.equal(result.updated, true);
+    assert.equal(server.files[`${legacyFolder}/solution.py`], 'café');
+    assert.equal(server.files[`${legacyFolder}/problem.md`], 'Legacy synthetic notes');
+    assert.equal(
+        Object.keys(server.files).some(file => file.includes('two-sum-ii-input-sorted')),
+        false,
+    );
+    assert.equal(
+        [...server.commits.values()][0].message,
+        'Updated two-sum-ii---input:-sorted? on 2026-11-23',
+    );
+});
+
+test('the new folder wins when it exists, and a missing legacy folder is never created', async () => {
+    const change = { title: 'two-sum-ii-input-sorted', legacyTitle: 'two-sum-ii---input-sorted' };
+    const newFolder = `${payload.category}/two-sum-ii-input-sorted`;
+    const legacyFolder = `${payload.category}/two-sum-ii---input-sorted`;
+    const both = gitRepository({
+        existing: {
+            [`${newFolder}/problem.md`]: 'new notes',
+            [`${legacyFolder}/problem.md`]: 'legacy notes',
+        },
+    });
+    await save(both, change);
+    assert.equal(both.files[`${newFolder}/solution.py`], 'café');
+    assert.equal(Object.hasOwn(both.files, `${legacyFolder}/solution.py`), false);
+    const neither = gitRepository();
+    await save(neither, change);
+    assert.deepEqual(Object.keys(neither.files).sort(), [
+        `${newFolder}/problem.md`,
+        `${newFolder}/solution.py`,
+    ]);
+});
+
 test('description-only saves create one commit or skip existing Markdown without writes', async () => {
     const change = { files: payload.files.filter(file => file.kind === 'problem') };
     const missing = gitRepository();
@@ -109,7 +159,7 @@ test('failures at every preparation stage leave both branch files unchanged', as
     }
 });
 
-test('a concurrent branch update rejects the final publication without forcing or partial changes', async () => {
+test('a rejected final publication never forces and points to branch rules if it repeats', async () => {
     const server = gitRepository({
         existing: { [solutionPath]: 'original', [problemPath]: 'notes' },
     });
@@ -120,7 +170,10 @@ test('a concurrent branch update rejects the final publication without forcing o
         }
         return server.fetch(url, init);
     });
-    assert.equal(result.error.code, 'CONFLICT');
+    // GitHub uses 422 both for non-fast-forward updates and for protection/ruleset rejections.
+    assert.equal(result.error.code, 'BRANCH_REJECTED');
+    assert.match(result.error.message, /branch protection rules or rulesets/);
+    assert.doesNotMatch(JSON.stringify(result), /private response/);
     assert.equal(server.publications, 0);
     assert.equal(server.files[solutionPath], 'original');
     assert.equal(server.files[problemPath], 'notes');

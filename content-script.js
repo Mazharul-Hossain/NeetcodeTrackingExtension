@@ -187,6 +187,12 @@ function slugProblemTitle(title) {
     return slug;
 }
 
+// Folder name used before Windows-safe slugs. The worker reuses it only if it already exists.
+function legacyProblemTitle(title) {
+    const legacy = title.replaceAll(' ', '-').toLowerCase().trim();
+    return /^[^/\\\p{Cc}]{1,200}$/u.test(legacy) && !['.', '..'].includes(legacy) ? legacy : null;
+}
+
 function getProblemHeading(article) {
     const scoped = article.querySelector('h1');
     if (scoped) return scoped;
@@ -228,7 +234,14 @@ ${questionContent.trim()}
         files.push({ kind: 'solution', extension, content: code });
     }
     files.push({ kind: 'problem', extension: 'md', content: enrichedMarkdown });
-    return { category, title, date, files };
+    const legacyTitle = legacyProblemTitle(questionTitle);
+    return {
+        category,
+        title,
+        ...(legacyTitle && legacyTitle !== title ? { legacyTitle } : {}),
+        date,
+        files,
+    };
 }
 
 async function addContentToGitHub(
@@ -251,6 +264,26 @@ async function addContentToGitHub(
         };
     }
     return chrome.runtime.sendMessage({ type: 'UPLOAD_PROBLEM', payload, uploadTicket });
+}
+
+// Joins converted inline nodes with single spaces, but never before closing punctuation
+// or around line breaks, so "<code>nums</code>, sorted" stays "`nums`, sorted".
+function joinInlineParts(parts) {
+    let joined = '';
+    for (const part of parts) {
+        if (!part) continue;
+        if (
+            joined &&
+            !joined.endsWith(' ') &&
+            !joined.endsWith('\n') &&
+            !part.startsWith('\n') &&
+            !/^[.,;:!?)]/.test(part)
+        ) {
+            joined += ' ';
+        }
+        joined += part;
+    }
+    return joined;
 }
 
 function formatArticleComponent(title, articleComponent, titleHeading = null) {
@@ -296,28 +329,10 @@ function formatArticleComponent(title, articleComponent, titleHeading = null) {
                 }
 
                 case 'p': {
-                    let pContent = '';
-                    for (const child of node.childNodes) {
-                        const part = processNode(child).trim();
-
-                        if (!part) continue;
-
-                        // Add space if needed (avoid merging words)
-                        if (
-                            pContent &&
-                            !pContent.endsWith(' ') &&
-                            !part.startsWith('\n') &&
-                            !part.startsWith('.') &&
-                            !part.startsWith(',') &&
-                            !part.startsWith(')')
-                        ) {
-                            pContent += ' ';
-                        }
-
-                        pContent += part;
-                    }
-
-                    return pContent.trim() + '\n\n';
+                    const parts = Array.from(node.childNodes).map(child =>
+                        processNode(child).trim(),
+                    );
+                    return joinInlineParts(parts).trim() + '\n\n';
                 }
 
                 case 'div': {
@@ -345,16 +360,15 @@ function formatArticleComponent(title, articleComponent, titleHeading = null) {
                         items
                             .map((li, index) => {
                                 const marker = tagName === 'ol' ? `${index + 1}. ` : '- ';
-                                const content = Array.from(li.childNodes)
-                                    .map(child => {
+                                const content = joinInlineParts(
+                                    Array.from(li.childNodes).map(child => {
                                         const part = processNode(child);
                                         return child.nodeType === Node.ELEMENT_NODE &&
                                             ['ul', 'ol'].includes(child.tagName.toLowerCase())
                                             ? `\n${part.trimEnd()}\n`
                                             : part.trim();
-                                    })
-                                    .join(' ')
-                                    .trim();
+                                    }),
+                                ).trim();
                                 const lines = content.split('\n').map(line => line.trimEnd());
                                 return (
                                     marker +

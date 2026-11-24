@@ -76,6 +76,8 @@ Saves with changes create blobs, a tree based on the current branch snapshot, an
 
 The first save creates `problem.md`. Later saves update the solution and leave the existing Markdown file untouched, preserving your Notes, tags, creation date, and description. Delete `problem.md` in your repository if you want the next save to regenerate it.
 
+Folder names are Windows-safe slugs: repeated dashes collapse and characters such as `:` and `?` are removed, so `Two Sum II - Input Array Is Sorted` saves to `two-sum-ii-input-array-is-sorted`. Earlier versions named that folder `two-sum-ii---input-array-is-sorted`. If a folder with the earlier name already contains `problem.md` and no new-style folder exists, saves keep using the earlier folder so its notes stay together. Rename the folder yourself if you prefer the new name.
+
 Category detection uses an explicit `system-design` URL path segment or a same-origin System Design route linked from a breadcrumb. Other problems use `Data Structures & Algorithms`; navigation, footer, and description text do not determine the category. Existing files saved under an incorrect category or extension are not moved automatically.
 
 ### Automatic saves
@@ -122,6 +124,7 @@ Toolbar saves and page-script recovery use the declared `neetcode.io` host acces
 | GitHub rejects a save | Check token expiration, repository selection, Contents write permission, organization approval, committer details, and branch rules. |
 | A save cannot be confirmed | Check your repository before retrying. If the final confirmation was lost, the complete save may already be committed. |
 | The repository changed during this save | Retry to save against the latest branch snapshot. The extension never forces a branch update. |
+| GitHub rejected the branch update | Retry once. If it repeats, check the default branch's protection rules and rulesets; they must allow direct pushes from your token. |
 | Initialize the GitHub repository | Add a README or another initial commit, then retry. Atomic saves require an existing branch. |
 | Automatic capture does not run | Check NeetCode's built-in GitHub integration, or use the toolbar save. |
 | Could not read the complete editor code | Wait for the editor to finish loading, then retry. No files are saved if the editor is unavailable or ambiguous. |

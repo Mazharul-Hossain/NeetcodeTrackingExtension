@@ -56,6 +56,8 @@ const ERROR_MESSAGES = {
         'Initialize the GitHub repository with a README or another commit, then save again.',
     REPO_NOT_FOUND: 'The repository is missing or inaccessible to this token.',
     CONFLICT: 'The repository changed during this save. Try saving again.',
+    BRANCH_REJECTED:
+        'GitHub rejected the branch update. Try saving again; if this repeats, check the branch protection rules or rulesets.',
     GITHUB_VALIDATION: 'GitHub could not accept this file or committer information.',
     RATE_LIMITED: 'GitHub rate limit reached. Wait before trying again.',
     NETWORK_ERROR: 'Could not connect to GitHub. Check your connection.',
@@ -486,13 +488,18 @@ async function clearSettings() {
 
 function validateUploadPayload(payload) {
     if (
-        !exactKeys(payload, ['category', 'title', 'date', 'files']) ||
+        !exactKeys(payload, ['category', 'title', 'legacyTitle', 'date', 'files']) ||
         !['System Design', 'Data Structures & Algorithms'].includes(payload.category) ||
         typeof payload.title !== 'string' ||
         !/^[^<>:"/\\|?*\x00-\x1f\x7f]{1,200}$/.test(payload.title) ||
         ['.', '..'].includes(payload.title) ||
         /[. ]$/.test(payload.title) ||
         /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(payload.title) ||
+        // Folder name produced by versions before Windows-safe slugs; only reused, never created.
+        (payload.legacyTitle !== undefined &&
+            (typeof payload.legacyTitle !== 'string' ||
+                !/^[^/\\\x00-\x1f\x7f]{1,200}$/.test(payload.legacyTitle) ||
+                ['.', '..'].includes(payload.legacyTitle))) ||
         typeof payload.date !== 'string' ||
         !/^\d{4}-\d{2}-\d{2}$/.test(payload.date) ||
         Number.isNaN(Date.parse(payload.date)) ||
@@ -606,7 +613,7 @@ async function githubRequest(settings, endpointPath, init, revision, refUpdate =
                 401: 'AUTH_FAILED',
                 403: 'ACCESS_DENIED',
                 409: 'CONFLICT',
-                422: refUpdate ? 'CONFLICT' : 'GITHUB_VALIDATION',
+                422: refUpdate ? 'BRANCH_REJECTED' : 'GITHUB_VALIDATION',
             }[response.status] || 'GITHUB_ERROR',
         );
     } catch (error) {
@@ -675,7 +682,8 @@ async function uploadProblem(payload, revision, uploadTicket, sender) {
     if (repository.status === 404) fail('REPO_NOT_FOUND');
     const branch = repository.data?.default_branch;
     if (typeof branch !== 'string' || !branch) fail('GITHUB_ERROR');
-    const refPath = `heads/${encodeURIComponent(branch)}`;
+    // Documented form heads/<branch>: keep slashes, encode each segment.
+    const refPath = `heads/${branch.split('/').map(encodeURIComponent).join('/')}`;
     let reference;
     try {
         reference = await request(`/git/ref/${refPath}`);
@@ -690,16 +698,31 @@ async function uploadProblem(payload, revision, uploadTicket, sender) {
     const parent = await request(`/git/commits/${encodeURIComponent(head)}`);
     const baseTree = parent.data?.tree?.sha;
     if (parent.status !== 200 || typeof baseTree !== 'string' || !baseTree) fail('GITHUB_ERROR');
-    const files = [];
-    const changes = [];
     // All existence checks use the same immutable commit as the new commit's parent.
-    for (const file of payload.files) {
-        const path = `${payload.category}/${payload.title}/${file.kind}.${file.extension}`;
+    const fileExists = async path => {
         const encodedPath = path.split('/').map(encodeURIComponent).join('/');
         const existing = await request(`/contents/${encodedPath}?ref=${encodeURIComponent(head)}`);
         const present = existing.status === 200;
         if (present && existing.data?.type !== 'file') fail('CONFLICT');
         if (existing.status !== 404 && !present) fail('GITHUB_ERROR');
+        return present;
+    };
+    // Keep saving into a folder created under the old naming rules, so its notes stay together.
+    let folder = payload.title;
+    const legacy = payload.legacyTitle;
+    if (
+        legacy &&
+        legacy !== payload.title &&
+        !(await fileExists(`${payload.category}/${payload.title}/problem.md`)) &&
+        (await fileExists(`${payload.category}/${legacy}/problem.md`))
+    ) {
+        folder = legacy;
+    }
+    const files = [];
+    const changes = [];
+    for (const file of payload.files) {
+        const path = `${payload.category}/${folder}/${file.kind}.${file.extension}`;
+        const present = await fileExists(path);
         const skipped = present && file.kind === 'problem';
         files.push({ kind: file.kind, updated: present && !skipped, skipped });
         if (!skipped) changes.push({ file, path });
@@ -725,7 +748,7 @@ async function uploadProblem(payload, revision, uploadTicket, sender) {
     const identity = { name: settings.committerName, email: settings.committerEmail };
     const commit = githubSha(
         await request('/git/commits', 'POST', {
-            message: `${updated ? 'Updated' : 'Added'} ${payload.title} on ${payload.date}`,
+            message: `${updated ? 'Updated' : 'Added'} ${folder} on ${payload.date}`,
             tree: newTree,
             parents: [head],
             author: identity,

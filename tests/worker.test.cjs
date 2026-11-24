@@ -146,6 +146,10 @@ test('arbitrary destinations, nested frames and traversal payloads are rejected'
             title,
         })),
         { ...payload, url: 'https://evil.invalid' },
+        ...['../secret', 'a/b', 'a\\b', '..', 'bad\u0000name', 7].map(legacyTitle => ({
+            ...payload,
+            legacyTitle,
+        })),
         { ...payload, files: [{ kind: 'problem', extension: 'html', content: 'x' }] },
     ]) {
         assert.equal(

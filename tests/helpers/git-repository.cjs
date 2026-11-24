@@ -9,6 +9,8 @@ function gitRepository({ existing = {}, branch = 'main', empty = false } = {}) {
     const commits = new Map();
     const writes = [];
     let publications = 0;
+    // GitHub documents refs as heads/<branch name>; slashes in the branch stay path separators.
+    const refPath = `heads/${branch.split('/').map(encodeURIComponent).join('/')}`;
     // Content-addressed snapshots model tree equality; these are synthetic, not Git's wire format.
     const treeHash = snapshot =>
         createHash('sha1')
@@ -32,6 +34,7 @@ function gitRepository({ existing = {}, branch = 'main', empty = false } = {}) {
         if (parsed.pathname === '/user') return response(200, { login: 'test-owner' });
         if (path === '') return response(200, { default_branch: branch, size: empty ? 0 : 1 });
         if (path.startsWith('/git/ref/')) {
+            assert.equal(path, `/git/ref/${refPath}`);
             return empty ? response(404) : response(200, { object: { sha: 'head-sha' } });
         }
         if (path === '/git/commits/head-sha') {
@@ -67,7 +70,7 @@ function gitRepository({ existing = {}, branch = 'main', empty = false } = {}) {
         }
         if (path.startsWith('/git/refs/')) {
             assert.equal(init.method, 'PATCH');
-            assert.equal(path, `/git/refs/heads/${encodeURIComponent(branch)}`);
+            assert.equal(path, `/git/refs/${refPath}`);
             assert.equal(body.force, false);
             const commit = commits.get(body.sha);
             assert.ok(commit);

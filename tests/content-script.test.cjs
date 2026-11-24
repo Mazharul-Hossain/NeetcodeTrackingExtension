@@ -186,6 +186,24 @@ test('problem slugs trim once, collapse dashes and avoid Windows-invalid names',
     assert.doesNotThrow(() => encodeURIComponent(unicode));
 });
 
+test('payloads name the pre-slug folder only when it differs and is path-safe', async () => {
+    const f = contentFixture({ location: { href: 'https://neetcode.io/problems/two-sum' } });
+    f.evaluate(
+        'waitForTopics = async () => []; getCategory = () => "Data Structures & Algorithms";',
+    );
+    const build = title => f.context.buildUploadPayload('', title, 'Body', 'Python');
+    assert.equal(
+        (await build('Two Sum II - Input: Sorted?')).legacyTitle,
+        'two-sum-ii---input:-sorted?',
+    );
+    assert.equal((await build('Two Sum II - Input: Sorted?')).title, 'two-sum-ii-input-sorted');
+    assert.equal('legacyTitle' in (await build('Two Sum')), false);
+    assert.equal('legacyTitle' in (await build('Either/Or')), false);
+    // Reproduces the old rule exactly: spaces became dashes before trimming.
+    assert.equal(f.context.legacyProblemTitle('  Valid Sudoku '), '--valid-sudoku-');
+    assert.equal(f.context.legacyProblemTitle('Valid Sudoku'), 'valid-sudoku');
+});
+
 test('problem heading prefers the article and refuses ambiguous page headings', () => {
     const scoped = { textContent: 'Problem title' };
     const visible = textContent => ({
@@ -227,6 +245,32 @@ test('description lists preserve literal comparisons and render math only from K
     assert.equal(
         f.context.formatArticleComponent('Example', { childNodes: [list] }),
         '# **Example**\n\n- nums[0] + nums[1] == 9\n- Bounds: 0 < n > 1 ^ 2\n- Use $x^2$',
+    );
+});
+
+test('list items and paragraphs keep punctuation attached to inline code and math', () => {
+    const f = contentFixture();
+    const text = textContent => ({ nodeType: 3, textContent });
+    const element = (tagName, childNodes) => ({
+        nodeType: 1,
+        tagName,
+        childNodes,
+        textContent: childNodes.map(child => child.textContent).join(''),
+        classList: { contains: () => false },
+    });
+    const sentence = () => [
+        text('Return '),
+        element('CODE', [text('nums')]),
+        text(', sorted; then '),
+        element('CODE', [text('k')]),
+        text('.'),
+    ];
+    const article = {
+        childNodes: [element('UL', [element('LI', sentence())]), element('P', sentence())],
+    };
+    assert.equal(
+        f.context.formatArticleComponent('Example', article),
+        '# **Example**\n\n- Return `nums`, sorted; then `k`.\n\nReturn `nums`, sorted; then `k`.',
     );
 });
 
