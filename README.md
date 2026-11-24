@@ -1,160 +1,143 @@
-# NeetCode Tracking Extension
+# NeetCode Tracking 2.0
 
-A Chrome extension that automatically captures your NeetCode solutions and problem descriptions, then uploads them to your GitHub repository in a well-organized format.
+Save your NeetCode solutions and problem descriptions to your own GitHub repository, directly from Chrome.
+
+Version **2.0.0** adds an extension settings page, encrypted GitHub token storage, and PIN-assisted unlock. Set up your connection in the browser—no configuration files or source edits required.
 
 ## Features
 
-- **Automatic Code Capture**: Captures your solution code when you run or submit it on NeetCode
-- **Problem Description**: Extracts and formats the problem description in Markdown
-- **GitHub Integration**: Automatically uploads both solution and problem files to your GitHub repository
-- **Organized Structure**: Creates a clean folder structure: `{date}/{problem-name}/`
-- **Multiple Languages**: Supports various programming languages (Python, Java, C++, JavaScript, etc.)
+- **One-click saves:** save the current solution and formatted problem description from a NeetCode problem page.
+- **GitHub updates:** create or update files on your repository's default branch.
+- **Problem notes:** include topic tags, a UTC creation date, and a Notes section in each problem's Markdown file.
+- **Protected credentials:** encrypt your token on this device and unlock it with a compatible passkey provider, including supported Windows Hello PIN setups.
+- **Automatic reconnection:** reconnect already-open NeetCode tabs after extension updates without refreshing the page or losing editor contents.
 
-## New V1.1.0 File Structure
+## Requirements
 
-1. Supports the same file structure as the `Connect Neetcode to GitHub account` feature
-2. **Navigate to a NeetCode problem** (e.g., https://neetcode.io/problems/two-integer-sum?list=neetcode150/)
-3. Click on the **Extension Icon**
-4. **Extension automatically captures** your code (if any) and the problem description
-8. **Files are uploaded to GitHub** in the following structure:
-   ```
-   Data Structures & Algorithms/
-   └── two-sum/
-       ├── problem.md
-       ├── solution.py (or .js, .java, etc.)
-       ├── submission-0.py
-       └── ......
- 9. **Submit your solution** (click "Submit"), does not support "Run" anymore
-10. **Extension automatically captures** your code and the problem description
-11. Only after NeetCode GitHub sync completes running, **Extension automatically uploads Files to GitHub**
-   ```
+- **Google Chrome 157 or newer.**
+- **A compatible passkey provider** supporting WebAuthn PRF and user verification. Windows Hello PIN has been verified on Chrome 157 for Windows ARM64. Compatibility with other providers and platforms has not been verified.
+- **A GitHub repository** and a fine-grained personal access token restricted to that repository, with **Contents: Read and write** permission.
 
 ## Installation
 
-### 1. Clone or Download the Extension
+### From source
 
-```bash
-git clone https://github.com/adarshdanda06/NeetcodeTrackingExtension
-cd NeetcodeTrackingExtension
+1. Download this repository and extract it, or clone it.
+2. Open `chrome://extensions` in Chrome and enable **Developer mode**.
+3. Select **Load unpacked** and choose the project folder containing `manifest.json`.
+4. The settings page opens automatically on first installation.
+
+You can reopen settings at any time: right-click the extension icon and select **Options**, or use **Extension options** on its Details page in `chrome://extensions`.
+
+When updating an unpacked installation, keep the project in the same folder and select **Reload** in `chrome://extensions`. Unlock again afterward; already-open NeetCode problem tabs reconnect when you click the toolbar icon.
+
+## Connect your GitHub repository
+
+1. Create or choose a repository for your solutions.
+2. Open [GitHub's fine-grained token settings](https://github.com/settings/personal-access-tokens) and create a token. Select only your intended repository, grant **Contents: Read and write**, and choose an expiration. Organization repositories may require approval.
+3. Enter the following in the extension's settings:
+
+   | Field | What to enter |
+   | --- | --- |
+   | GitHub username or organization | The repository owner |
+   | Repository name | The name only, without a URL or `.git` suffix |
+   | GitHub personal access token | Your fine-grained token |
+   | Committer name and email | The identity recorded in Git commits; a GitHub noreply email is supported |
+
+4. Select **Save settings** and complete the browser's passkey setup prompts. Enter your PIN only in the browser or passkey provider's prompt, never in the extension's form.
+5. Select **Unlock with PIN**, then **Test connection** to verify authentication and repository access.
+
+**Test connection** does not create a commit or verify write permission. Saving files also depends on your token's Contents permission and the repository's branch rules.
+
+### Editing settings
+
+Leave the token field blank to keep your saved token when changing other fields. Unlocking never displays the saved token in the form. Enter a new token only when replacing it.
+
+Every successful **Save settings** locks the vault, including changes to your name, email, or repository. Select **Unlock with PIN** before saving problems again.
+
+## Save a problem
+
+1. Open a problem on [NeetCode](https://neetcode.io/) and write your solution.
+2. Click the extension's toolbar icon.
+3. Wait for **Saved via click** or **Updated via click** on the page.
+
+If no code is found, the extension saves the problem description only. Files are organized like this:
+
+```text
+Data Structures & Algorithms/    # or System Design/
+└── two-sum/
+    ├── solution.py
+    └── problem.md
 ```
 
-### 2. Create a GitHub Repository
+Supported language mappings are Python (`.py`), JavaScript (`.js`), Java (`.java`), C++ (`.cpp`), and the existing C# mapping (`.c`). Unrecognized languages currently fall back to `.py`.
 
-Create a new GitHub repository where you want to track your NeetCode progress:
+### Automatic saves
 
-1. Go to [GitHub](https://github.com) and sign in
-2. Click the "+" icon in the top right corner
-3. Select "New repository"
-4. Name your repository (e.g., "neetcode-solutions" or "coding-progress")
-5. Choose public or private (your preference)
-6. Click "Create repository"
-7. **Note down the repository name** - you'll need it for the config file
+Automatic capture runs after NeetCode's own GitHub-sync request completes. This requires NeetCode's built-in GitHub integration to be configured; running or submitting code alone does not guarantee this trigger. The toolbar save works independently of that integration.
 
-### 3. Create Configuration File
+## Unlocking and security
 
-**IMPORTANT**: You need to create a `config.js` file in the root directory with your GitHub credentials.
+Read the [privacy policy](PRIVACY.md) for the data the extension handles, where it is sent, and how to remove it. Files and commit details are public when saved to a public repository.
 
-Create `config.js` with the following structure:
+Your token stays encrypted on this device between browser sessions. After restarting Chrome, reloading the extension, or installing an update, choose **Unlock with PIN** in Options. You do not need to enter the token again. The browser or passkey provider controls verification and may offer biometrics as well as a PIN.
 
-```javascript
-const config = {
-    github: {
-        username: "your-github-username",
-        repo_name: "your-repository-name",
-        token: "your-github-personal-access-token",
-        committer_name: "Your Name",
-        committer_email: "your-email@example.com"
-    }
-};
-```
+- **Lock** removes the unlocked session while keeping the encrypted token.
+- **Clear settings** removes the saved connection and encrypted token. It does not revoke the token on GitHub or delete the passkey from its provider.
+- If you lose your passkey, clear settings and configure a replacement token and passkey. The extension cannot recover the old encrypted token.
+- If you suspect a token was exposed, revoke it in GitHub's settings.
 
-#### How to Get GitHub Personal Access Token:
+The token is encrypted with AES-256-GCM using a key derived from the passkey's PRF output. GitHub requests run in the background worker; NeetCode content scripts receive neither the token nor its encryption key. Local storage holds the encrypted vault and public connection settings. While unlocked, the plaintext token is held in trusted extension session memory. This does not protect against malware or compromised extension code accessing an unlocked browser.
 
-1. Go to GitHub Settings → Developer settings → Personal access tokens → Fine-grained tokens
-2. Click "Generate new token"
-3. Give it a name like "Neetcode_Extension_Token"
-4. Go to Repository Access: `Only select repositories` and select the repository you created
-5. Go to the Repository select and select Repository Permissions. You will drop down. Scroll to the Contents section and select the `Access` dropdown. Click `Read and write`. 
-7. Click `Generate Token`
-6. Copy the generated token and paste it in your `config.js`
+Connection settings are stored locally, not synced across devices. The extension sends your solution, problem description, and commit identity to your configured GitHub repository when saving. It has no application backend.
 
-### 4. Load Extension in Chrome
+### Extension permissions
 
-1. Open Chrome and go to `chrome://extensions/`
-2. Enable "Developer mode" (toggle in top right)
-3. Click "Load unpacked"
-4. Select the folder containing your extension files
-
-## File Structure
-
-```
-NeetcodeTrackingExtension/
-├── manifest.json
-├── background.js
-├── content-script.js
-├── config.js (you need to create this)
-└── README.md
-```
-
-## How It Works
-
-1. **Background Script** (`background.js`): Monitors network requests to NeetCode's API endpoints
-2. **Content Script** (`content-script.js`): Extracts problem descriptions and handles GitHub uploads
-3. **Configuration** (`config.js`): Contains your GitHub credentials and repository settings
-
-## Usage
-
-1. **Navigate to a NeetCode problem** (e.g., https://neetcode.io/problems/two-integer-sum?list=neetcode150/)
-2. **Write your solution** in the code editor
-3. **Submit your solution** (click "Submit" or "Run")
-4. **Extension automatically captures** your code and the problem description
-5. **Files are uploaded to GitHub** in the following structure:
-   ```
-   2024-01-15/
-   └── two-sum/
-       ├── solution.py (or .js, .java, etc.)
-       └── problem.md
-   ```
-
-## Supported Languages
-
-The extension automatically detects and uses the correct file extension for:
-- Python (`.py`)
-- JavaScript (`.js`)
-- Java (`.java`)
-- C++ (`.cpp`)
-- C# (`.c`)
-
+| Permission or access | Purpose |
+| --- | --- |
+| `activeTab` | Access the tab when you click the extension |
+| `scripting` | Reconnect the page script on already-open NeetCode tabs |
+| `storage` | Store connection settings, the encrypted token, and the unlocked session |
+| `webRequest` | Observe NeetCode submission and GitHub-sync events for automatic capture |
+| `neetcode.io` | Extract the problem description and solution |
+| `api.github.com` | Authenticate and save files to your repository |
 
 ## Troubleshooting
 
-### Extension Not Working?
+| What you see | What to do |
+| --- | --- |
+| The vault is locked | Open Options, choose **Unlock with PIN**, return to the problem, and click the extension again. Interrupted saves are not replayed. |
+| Passkey PRF is unsupported | Use a compatible provider. The extension does not fall back to plaintext token storage. |
+| A PIN prompt was cancelled or timed out | Retry from Options and keep the settings tab visible while completing the prompt. |
+| The extension cannot connect to the page | Check Chrome's site-access setting for the extension on `neetcode.io`, then retry. Recovery errors appear at the top of Options. |
+| GitHub rejects a save | Check token expiration, repository selection, Contents write permission, organization approval, committer details, and branch rules. |
+| A save cannot be confirmed | Check your repository before retrying. An earlier file may have been committed even if a later file failed. |
+| Automatic capture does not run | Check NeetCode's built-in GitHub integration, or use the toolbar save. |
+| Problem details did not load | Wait for the problem page to finish loading, then retry. Missing optional topic tags do not prevent saving. |
 
-1. **Check Console**: Open DevTools (F12) and check for errors
-2. **Verify Config**: Ensure `config.js` exists and has correct credentials
-3. **Check Permissions**: Make sure the personal access token has necessary permissions
-4. **Reload Extension**: Go to `chrome://extensions/` and click the refresh icon
+### Upgrading from a configuration-file version
 
-### Files Not Uploading to GitHub?
+Configure your connection in Options. Version 2.0 does not read `config.js` or `.env` files. Consider replacing a token used with an older version that exposed `config.js` to web pages. Keep old credential files out of source control and release packages.
 
-1. **Verify Token**: Check if your GitHub token is valid and has the correct permissions
-2. **Repository Access**: Ensure the repository exists and you have write access
-3. **Network Issues**: Check if you can access GitHub from your browser
+An unpacked installation and a future Chrome Web Store installation may have different extension identities. Settings and passkeys do not automatically transfer between them.
 
-### Language Detection Issues?
+## Development
 
-- The extension defaults to Python (`.py`) if it can't detect the language
-- Check if the language selector on NeetCode is properly loaded
+No build step or runtime dependencies are required. With Node.js 24, run:
 
-## Security Notes
+```powershell
+node --test tests/*.test.cjs
+node --check background.js
+node --check vault-crypto.js
+node --check content-script.js
+node --check options.js
+git diff --check
+```
 
-- **Never commit your `config.js`** file to version control
-- **Keep your GitHub token secure** - it provides access to your repositories
+See the [documentation index](docs/README.md) for implementation and verification details. Compatibility fixtures under `tests/fixtures/` are separate test extensions and do not configure the main extension.
 
-## Contributing
-
-Feel free to submit issues and enhancement requests!
+For distribution, include only `manifest.json`, `background.js`, `vault-crypto.js`, `content-script.js`, `options.html`, `options.js`, `options.css`, `icon.png`, and `LICENSE`. Do not package the entire working directory or include credential files.
 
 ## License
 
-This project is open source and available under the [MIT License](LICENSE). 
+[MIT](LICENSE).
