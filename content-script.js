@@ -460,19 +460,23 @@ async function processAndUpload(code, source = 'auto', uploadTicket = null, page
     }
 }
 
-function getCode() {
-    // Try hidden textarea first
-    const textarea = document.querySelector('.inputarea');
-    if (textarea && textarea.value) return textarea.value;
+async function getCode(pageUrl) {
+    const result = await chrome.runtime.sendMessage({ type: 'GET_EDITOR_CODE', pageUrl });
+    if (!result?.ok || typeof result.code !== 'string') throw new Error('Editor unavailable');
+    return result.code;
+}
 
-    // Fallback to DOM lines
-    const lines = document.querySelectorAll('.view-lines .view-line');
-
-    if (!lines.length) return null;
-
-    return Array.from(lines)
-        .map(line => line.innerText)
-        .join('\n');
+async function saveManual(message) {
+    try {
+        const code = await getCode(message.pageUrl);
+        if (location.href !== message.pageUrl) throw new Error('Page changed');
+        await processAndUpload(code, 'manual', message.uploadTicket, message.pageUrl);
+    } catch {
+        showToast(
+            'Could not read the complete editor code. No files were saved. Try again on the problem page.',
+            '#e74c3c',
+        );
+    }
 }
 
 // Only the extension worker may trigger extraction. No credential messages here.
@@ -506,7 +510,7 @@ if (globalThis.__neetcodeTrackingReceiverId !== chrome.runtime.id) {
                 sendResponse?.({ accepted: false, reason: 'PAGE_CHANGED' });
                 return false;
             }
-            void processAndUpload(getCode() || '', 'manual', message.uploadTicket, message.pageUrl);
+            void saveManual(message);
         } else {
             return false;
         }

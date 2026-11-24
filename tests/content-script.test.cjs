@@ -36,18 +36,24 @@ test('category ignores body/navigation text and uses only explicit routes or bre
     assert.equal(f.context.getCategory(), 'System Design');
 });
 
-test('editor reads textarea first, then falls back to visible lines', () => {
-    let textarea = { value: '完整 solution' };
+test('editor capture requests the full model and never reads a textarea or rendered lines', async () => {
+    const code = 'def solve():\n    return "完整"\n' + '# long line\n'.repeat(1000);
     const f = contentFixture({
         document: {
-            querySelector: () => textarea,
-            querySelectorAll: () => [{ innerText: 'line one' }, { innerText: 'line two' }],
+            querySelector: () => assert.fail('Must not read hidden textarea'),
+            querySelectorAll: () => assert.fail('Must not read virtualized lines'),
         },
     });
-    assert.equal(f.context.getCode(), '完整 solution');
-    textarea = null;
-    assert.equal(f.context.getCode(), 'line one\nline two');
+    f.context.chrome.runtime.sendMessage = async message => {
+        assert.equal(message.type, 'GET_EDITOR_CODE');
+        assert.equal(message.pageUrl, f.context.location.href);
+        return { ok: true, code };
+    };
+    assert.equal(await f.context.getCode(f.context.location.href), code);
+    f.context.chrome.runtime.sendMessage = async () => ({ ok: false });
+    await assert.rejects(f.context.getCode(f.context.location.href));
 });
+
 test('Markdown preserves paragraphs, Unicode and KaTeX source', () => {
     const text = value => ({ nodeType: 3, textContent: value });
     const math = {

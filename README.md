@@ -61,7 +61,7 @@ Every successful **Save settings** locks the vault, including changes to your na
 2. Click the extension's toolbar icon.
 3. Wait for **Saved via click** or **Updated via click** on the page.
 
-If no code is found, the extension saves the problem description only. Files are organized like this:
+Toolbar saves read the complete Monaco editor model, preserving lines and indentation regardless of scrolling. If the editor cannot be read unambiguously, the save stops with an error instead of uploading partial code. An empty editor saves the problem description only. Files are organized like this:
 
 ```text
 Data Structures & Algorithms/    # or System Design/
@@ -100,7 +100,7 @@ Connection settings are stored locally, not synced across devices. The extension
 | Permission or access | Purpose |
 | --- | --- |
 | `activeTab` | Access the tab when you click the extension |
-| `scripting` | Reconnect the page script on already-open NeetCode tabs |
+| `scripting` | Reconnect the page script on already-open NeetCode tabs and read the complete Monaco editor model for toolbar saves |
 | `storage` | Store connection settings, the encrypted token, and the unlocked session |
 | `webRequest` | Observe NeetCode submission and GitHub-sync events for automatic capture |
 | `neetcode.io` | Extract the problem description and solution |
@@ -117,6 +117,7 @@ Connection settings are stored locally, not synced across devices. The extension
 | GitHub rejects a save | Check token expiration, repository selection, Contents write permission, organization approval, committer details, and branch rules. |
 | A save cannot be confirmed | Check your repository before retrying. An earlier file may have been committed even if a later file failed. |
 | Automatic capture does not run | Check NeetCode's built-in GitHub integration, or use the toolbar save. |
+| Could not read the complete editor code | Wait for the editor to finish loading, then retry. No files are saved if the editor is unavailable or ambiguous. |
 | Problem details did not load | Wait for the problem page to finish loading, then retry. Missing optional topic tags do not prevent saving. |
 
 ### Upgrading from a configuration-file version

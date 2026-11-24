@@ -108,7 +108,7 @@ test('locked upload offers settings action and does not report success or replay
         ['UPLOAD_PROBLEM', 'OPEN_SETTINGS'],
     );
 });
-test('manual trigger acknowledges acceptance immediately instead of leaving sender unanswered', () => {
+test('manual trigger acknowledges acceptance immediately instead of leaving sender unanswered', async () => {
     const f = fixture({ ok: true });
     f.evaluate(
         'globalThis.jobs = []; getCode = () => "synthetic code"; processAndUpload = async (...args) => { jobs.push(args); };',
@@ -127,6 +127,7 @@ test('manual trigger acknowledges acceptance immediately instead of leaving send
         },
     );
     assert.equal(acknowledgement?.accepted, true);
+    await Promise.resolve();
     assert.deepEqual(Array.from(f.context.jobs[0]), [
         'synthetic code',
         'manual',
@@ -278,4 +279,48 @@ test('readiness probe is side-effect free and reinjection registers only one rec
     assert.equal(result?.ready, true);
     assert.equal(f.messages.length, 0);
     assert.equal(f.context.toasts.length, 0);
+});
+
+test('failed complete-model capture stops manual saves without uploading partial DOM code', async () => {
+    const f = fixture({ ok: false, error: { code: 'EDITOR_UNAVAILABLE' } });
+    await f.context.saveManual({
+        pageUrl: f.context.location.href,
+        uploadTicket: 'synthetic-ticket',
+    });
+    assert.deepEqual(
+        f.messages.map(message => message.type),
+        ['GET_EDITOR_CODE'],
+    );
+    assert.match(f.context.toasts.at(-1).message, /Could not read the complete editor code/);
+});
+
+test('navigation while awaiting the editor prevents a manual upload', async () => {
+    const f = fixture({ ok: true });
+    f.context.chrome.runtime.sendMessage = async () => {
+        f.context.location.href += '-other';
+        return { ok: true, code: 'synthetic code' };
+    };
+    await f.context.saveManual({ pageUrl: f.context.location.href });
+    assert.equal(f.messages.length, 0);
+    assert.match(f.context.toasts.at(-1).message, /No files were saved/);
+});
+
+test('manual save sends complete model code unchanged through to the upload', async () => {
+    const f = fixture({ ok: true });
+    const code = 'def solve():\n    return "café"\n' + '# more code\n'.repeat(1000);
+    f.context.document.querySelectorAll = () => [];
+    f.context.chrome.runtime.sendMessage = async message => {
+        f.messages.push(message);
+        return message.type === 'GET_EDITOR_CODE' ? { ok: true, code } : { ok: true };
+    };
+    await f.context.saveManual({
+        pageUrl: f.context.location.href,
+        uploadTicket: 'synthetic-ticket',
+    });
+    assert.deepEqual(
+        f.messages.map(message => message.type),
+        ['GET_EDITOR_CODE', 'UPLOAD_PROBLEM'],
+    );
+    assert.equal(f.messages[1].payload.files[0].content, code);
+    assert.equal(f.messages[1].uploadTicket, 'synthetic-ticket');
 });

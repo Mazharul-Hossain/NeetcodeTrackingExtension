@@ -1,6 +1,6 @@
 # Privacy policy
 
-**NeetCode Tracking 2.0 · Updated November 23, 2026**
+**NeetCode Tracking 2.0 · Updated November 24, 2026**
 
 NeetCode Tracking saves your NeetCode solutions and problem descriptions to a GitHub repository you choose. It has no application backend, analytics, advertising, or data-sale functionality.
 
@@ -8,7 +8,7 @@ NeetCode Tracking saves your NeetCode solutions and problem descriptions to a Gi
 
 - **Connection settings:** your GitHub repository owner and name, personal access token, and committer name and email.
 - **Problem data:** the solution code, problem title and description, topic tags when available, category, and save date.
-- **Page context:** the NeetCode problem URL and tab information needed to associate a save with the correct problem. For automatic saves, the extension observes NeetCode submission and GitHub-sync requests and temporarily holds submitted code in memory.
+- **Page context:** the NeetCode problem URL and tab information needed to associate a save with the correct problem. For toolbar saves, a local script reads the full Monaco editor model in the NeetCode page context without receiving credentials. For automatic saves, the extension observes NeetCode submission and GitHub-sync requests and temporarily holds submitted code in memory.
 - **Vault information:** an encrypted token, passkey credential identifier, encryption metadata, and temporary unlock material. Your browser or passkey provider handles verification; the extension does not receive or store your PIN or biometric data.
 
 ## How information is used and shared

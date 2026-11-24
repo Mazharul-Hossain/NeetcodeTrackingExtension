@@ -42,6 +42,7 @@ const storageReady = Promise.all([
 const ERROR_MESSAGES = {
     UNAUTHORIZED: 'This action is not allowed from this page.',
     INVALID_SETTINGS: 'Check the repository owner, name, token and committer fields.',
+    EDITOR_UNAVAILABLE: 'Could not read the complete editor code. No files were saved.',
     INVALID_UPLOAD: 'The problem data or file size is not supported.',
     NOT_CONFIGURED: 'Open extension settings to configure GitHub.',
     VAULT_LOCKED: 'Open settings and unlock with your passkey PIN, then save again.',
@@ -665,6 +666,66 @@ async function uploadProblem(payload, revision, uploadTicket, sender) {
     return { ok: true, updated: files.some(file => file.updated), files };
 }
 
+// Runs in the page world without credentials or extension state. Never scrape rendered lines.
+function readEditorModel(pageUrl) {
+    if (globalThis.location.href !== pageUrl) return null;
+    try {
+        const api = globalThis.monaco?.editor;
+        if (!api) return null;
+        let model;
+        if (typeof api.getEditors === 'function') {
+            const editors = api.getEditors().filter(editor => {
+                const node = editor.getDomNode();
+                return node?.isConnected && node.getClientRects().length > 0;
+            });
+            const focused = editors.filter(editor => editor.hasTextFocus());
+            const candidates = focused.length === 1 ? focused : editors;
+            if (candidates.length !== 1) return null;
+            model = candidates[0].getModel();
+        } else {
+            const models = api.getModels().filter(model => !model.isDisposed());
+            if (models.length !== 1) return null;
+            model = models[0];
+        }
+        if (!model || model.isDisposed()) return null;
+        const code = model.getValue();
+        return typeof code === 'string' && code.length <= 1048576 ? code : null;
+    } catch {
+        return null;
+    }
+}
+
+async function getEditorCode(sender, pageUrl, revision) {
+    if (typeof pageUrl !== 'string' || pageUrl !== (sender.tab.url || sender.url)) {
+        fail('PAGE_CHANGED');
+    }
+    let timer;
+    try {
+        const results = await Promise.race([
+            chrome.scripting.executeScript({
+                target: { tabId: sender.tab.id, frameIds: [0] },
+                world: 'MAIN',
+                func: readEditorModel,
+                args: [pageUrl],
+            }),
+            new Promise((_resolve, reject) => {
+                timer = setTimeout(() => reject(new Error('Editor timeout')), 5000);
+            }),
+        ]);
+        checkRevision(revision);
+        const code = results?.[0]?.result;
+        if (typeof code !== 'string' || new TextEncoder().encode(code).byteLength > 1048576) {
+            fail('EDITOR_UNAVAILABLE');
+        }
+        return { ok: true, code };
+    } catch (error) {
+        if (error.publicCode) throw error;
+        fail('EDITOR_UNAVAILABLE');
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 const OPTIONS_OPERATIONS = new Set([
     'GET_SETTINGS',
     'BEGIN_VAULT_SETUP',
@@ -709,6 +770,8 @@ async function handleMessage(message, sender, revision) {
             return clearSettings();
         case 'TEST_CONNECTION':
             return testGitHubConnection(message.settings, revision);
+        case 'GET_EDITOR_CODE':
+            return getEditorCode(sender, message.pageUrl, revision);
         case 'UPLOAD_PROBLEM':
             return uploadProblem(message.payload, revision, message.uploadTicket, sender);
         case 'OPEN_SETTINGS':
@@ -719,7 +782,10 @@ async function handleMessage(message, sender, revision) {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const type = message?.type;
-    if (!OPTIONS_OPERATIONS.has(type) && !['UPLOAD_PROBLEM', 'OPEN_SETTINGS'].includes(type)) {
+    if (
+        !OPTIONS_OPERATIONS.has(type) &&
+        !['UPLOAD_PROBLEM', 'OPEN_SETTINGS', 'GET_EDITOR_CODE'].includes(type)
+    ) {
         return false;
     }
     if (!(OPTIONS_OPERATIONS.has(type) ? isOptionsSender(sender) : isProblemSender(sender))) {
