@@ -15,7 +15,7 @@ async function optionsFixture({ worker = workerFixture(), credentials } = {}) {
     assert.ok(fs.existsSync(path.join(root, 'options.js')), 'Settings controller must exist');
     const nodes = new Map();
     function node(id) {
-        if (!nodes.has(id))
+        if (!nodes.has(id)) {
             nodes.set(id, {
                 value: '',
                 textContent: '',
@@ -29,6 +29,7 @@ async function optionsFixture({ worker = workerFixture(), credentials } = {}) {
                 reportValidity: () => true,
                 focus() {},
             });
+        }
         return nodes.get(id);
     }
     const events = {};
@@ -92,8 +93,9 @@ async function optionsFixture({ worker = workerFixture(), credentials } = {}) {
             'github-token': fields.token,
             'committer-name': fields.committerName,
             'committer-email': fields.committerEmail,
-        }))
+        })) {
             node(id).value = value;
+        }
     }
     return { ...f, worker, node, fill, providerCalls };
 }

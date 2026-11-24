@@ -6,7 +6,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { backgroundFixture } = require('./helpers/extension-harness.cjs');
-const { configure, proof } = require('./helpers/worker-harness.cjs');
+const { configure } = require('./helpers/worker-harness.cjs');
 
 function capture(fixture, tabId, title, code) {
     fixture.chrome.webRequest.onBeforeRequest.fire({

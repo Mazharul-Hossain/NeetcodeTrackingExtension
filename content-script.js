@@ -28,7 +28,6 @@ async function waitForElement(getElement, identifier, signal) {
 
     return new Promise((resolve, reject) => {
         let settled = false;
-        let timer;
         const finish = element => {
             if (settled) return;
             settled = true;
@@ -47,7 +46,9 @@ async function waitForElement(getElement, identifier, signal) {
             childList: true,
             subtree: true,
         });
-        timer = setTimeout(cancel, 10000);
+        // Declared after the callbacks that clear it: they only run asynchronously,
+        // once this line has executed.
+        const timer = setTimeout(cancel, 10000);
         signal?.addEventListener('abort', cancel, { once: true });
         if (signal?.aborted) cancel();
     });
@@ -162,8 +163,9 @@ ${questionContent}
     `;
 
     const files = [];
-    if (code && code.trim())
+    if (code && code.trim()) {
         files.push({ kind: 'solution', extension: getLanguage(language), content: code });
+    }
     files.push({ kind: 'problem', extension: 'md', content: enrichedMarkdown });
     return { category, title, date, files };
 }
@@ -177,7 +179,7 @@ async function addContentToGitHub(
     pageUrl = null,
 ) {
     const payload = await buildUploadPayload(code, questionTitle, questionContent, language);
-    if (pageUrl && location.href !== pageUrl)
+    if (pageUrl && location.href !== pageUrl) {
         return {
             ok: false,
             error: {
@@ -186,6 +188,7 @@ async function addContentToGitHub(
                     'The page changed before saving. Click the extension again on the problem you want to save.',
             },
         };
+    }
     return chrome.runtime.sendMessage({ type: 'UPLOAD_PROBLEM', payload, uploadTicket });
 }
 
@@ -208,7 +211,7 @@ function formatArticleComponent(title, articleComponent) {
             const textContent = node.textContent.trim();
 
             switch (tagName) {
-                case 'span':
+                case 'span': {
                     if (node.classList.contains('katex')) {
                         const annotation = node.querySelector('annotation');
                         if (annotation) {
@@ -223,8 +226,9 @@ function formatArticleComponent(title, articleComponent) {
                         spanContent += processNode(child);
                     }
                     return spanContent;
+                }
 
-                case 'p':
+                case 'p': {
                     let pContent = '';
                     for (const child of node.childNodes) {
                         const part = processNode(child).trim();
@@ -247,8 +251,9 @@ function formatArticleComponent(title, articleComponent) {
                     }
 
                     return pContent.trim() + '\n\n';
+                }
 
-                case 'div':
+                case 'div': {
                     if (node.classList.contains('code-toolbar')) {
                         const codeElement = node.querySelector('code');
                         if (codeElement) {
@@ -260,8 +265,9 @@ function formatArticleComponent(title, articleComponent) {
                         divContent += processNode(child);
                     }
                     return divContent;
+                }
 
-                case 'ul':
+                case 'ul': {
                     let ulContent = '';
                     const listItems = node.querySelectorAll('li');
                     for (const li of listItems) {
@@ -274,14 +280,16 @@ function formatArticleComponent(title, articleComponent) {
                         }
                     }
                     return ulContent + '\n';
+                }
 
-                case 'ol':
+                case 'ol': {
                     let olContent = '';
                     const orderedItems = node.querySelectorAll('li');
                     for (let i = 0; i < orderedItems.length; i++) {
                         olContent += i + 1 + '. ' + orderedItems[i].textContent.trim() + '\n';
                     }
                     return olContent + '\n';
+                }
 
                 case 'details':
                     if (node.classList.contains('hint-accordion')) {
@@ -317,7 +325,7 @@ function formatArticleComponent(title, articleComponent) {
                     ) {
                         return '```\n' + textContent + '\n```\n\n';
                     }
-                    return '\`' + textContent + '\`';
+                    return '`' + textContent + '`';
 
                 case 'pre':
                     return '```\n' + textContent + '\n```\n\n';
@@ -327,17 +335,19 @@ function formatArticleComponent(title, articleComponent) {
                 case 'h3':
                 case 'h4':
                 case 'h5':
-                case 'h6':
+                case 'h6': {
                     const level = parseInt(tagName.charAt(1));
                     const prefix = '#'.repeat(level);
                     return prefix + ' ' + textContent + '\n\n';
+                }
 
-                default:
+                default: {
                     let content = '';
                     for (const child of node.childNodes) {
                         content += processNode(child);
                     }
                     return content;
+                }
             }
         }
 
