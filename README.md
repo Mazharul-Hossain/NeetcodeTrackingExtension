@@ -177,6 +177,7 @@ Individual scripts:
 | `npm test` | Runs the Node test suite (`node --test "tests/*.test.cjs"`) |
 | `npm run lint` / `npm run lint:fix` | Lints with ESLint (`eslint.config.mjs`); `lint:fix` applies safe fixes |
 | `npm run format` / `npm run format:check` | Formats with Prettier (`.prettierrc.json`) or checks formatting without writing |
+| `npm run release` | Creates the versioned release ZIP in `dist/` using Windows PowerShell |
 
 Prettier uses a 100-character line width, 4-space indentation, and single quotes. Markdown files are excluded so documentation tables keep their hand-written layout. Run `npm run format` before committing.
 
@@ -193,6 +194,17 @@ git diff --check
 See the [documentation index](docs/README.md) for implementation and verification details. Compatibility fixtures under `tests/fixtures/` are separate test extensions and do not configure the main extension.
 
 For distribution, include only `manifest.json`, `background.js`, `vault-crypto.js`, `content-script.js`, `options.html`, `options.js`, `options.css`, `icon.png`, and `LICENSE`. Do not package the entire working directory or include credential files.
+
+To create the release ZIP on Windows, run:
+
+```powershell
+npm run check
+npm run release
+```
+
+The script reads the version from `manifest.json` and creates `dist/neetcode-tracking-2.0.0.zip` for version 2.0.0. `manifest.json` and the other allowlisted files sit directly at the archive root, ready for Chrome Web Store upload. No tests, documentation, dependencies or local configuration are included. A successful rebuild replaces the ZIP for the same version; a packaging failure preserves the previous ZIP. Packaging does not publish or upload anything.
+
+You can also run the script directly from the project root with `powershell.exe -NoProfile -File .\scripts\package-release.ps1`. Windows PowerShell 5.1 is sufficient; no additional packaging dependencies are required. Release-packaging tests run on Windows and are skipped on other operating systems.
 
 ## License
 
