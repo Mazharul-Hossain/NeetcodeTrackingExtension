@@ -46,6 +46,18 @@ const ERROR_MESSAGES = {
     UNAUTHORIZED: 'This action is not allowed from this page.',
     INVALID_SETTINGS: 'Check the repository owner, name, token and committer fields.',
     EDITOR_UNAVAILABLE: 'Could not read the complete editor code. No files were saved.',
+    EDITOR_API_UNAVAILABLE: 'The editor API is unavailable on this page. No files were saved.',
+    EDITOR_DISCOVERY_FAILED:
+        'The page editor integration could not be identified safely. No files were saved.',
+    EDITOR_NOT_FOUND: 'No readable editor was found. No files were saved.',
+    EDITOR_AMBIGUOUS: 'More than one editor could be selected. No files were saved.',
+    EDITOR_MODEL_UNAVAILABLE: 'The selected editor model is unavailable. No files were saved.',
+    EDITOR_SNAPSHOT_INVALID:
+        'The editor returned invalid code or language data. No files were saved.',
+    EDITOR_TOO_LARGE: 'The editor code exceeds the supported size. No files were saved.',
+    EDITOR_READ_FAILED: 'The editor API could not read the model. No files were saved.',
+    EDITOR_INJECTION_FAILED: 'Chrome could not run the editor reader. No files were saved.',
+    EDITOR_READ_TIMEOUT: 'The editor reader did not respond in time. No files were saved.',
     INVALID_UPLOAD: 'The problem data or file size is not supported.',
     NOT_CONFIGURED: 'Open extension settings to configure GitHub.',
     VAULT_LOCKED: 'Open settings and unlock with your passkey PIN, then save again.',
@@ -252,7 +264,7 @@ async function getUnlockedSettings() {
     };
 }
 
-async function issueUploadTicket(tabId, pageUrl = null) {
+async function issueUploadTicket(tabId, pageUrl = null, documentId = null) {
     const revision = settingsRevision;
     const navigation = navigationByTab.get(tabId) || 0;
     const settings = await getUnlockedSettings();
@@ -266,6 +278,7 @@ async function issueUploadTicket(tabId, pageUrl = null) {
     uploadTickets.set(ticket, {
         tabId,
         pageUrl,
+        documentId,
         revision,
         vaultId: settings.vaultId,
         sessionGeneration: settings.sessionGeneration,
@@ -287,6 +300,7 @@ function consumeUploadTicket(ticket, sender, settings) {
         fail('SETTINGS_CHANGED');
     }
     if (entry.pageUrl && entry.pageUrl !== (sender.tab.url || sender.url)) fail('PAGE_CHANGED');
+    if (entry.documentId && entry.documentId !== sender.documentId) fail('PAGE_CHANGED');
 }
 
 async function beginVaultCeremony(mode, sender, revision) {
@@ -780,37 +794,138 @@ async function uploadProblem(payload, revision, uploadTicket, sender) {
 
 // Runs in the page world without credentials or extension state. Never scrape rendered lines.
 function readEditorModel(pageUrl) {
-    if (globalThis.location.href !== pageUrl) return null;
+    const unavailable = errorCode => ({ errorCode });
+    if (globalThis.location.href !== pageUrl) return unavailable('PAGE_CHANGED');
     try {
-        const api = globalThis.monaco?.editor;
-        if (!api) return null;
-        let model;
-        if (typeof api.getEditors === 'function') {
-            const editors = api.getEditors().filter(editor => {
-                const node = editor.getDomNode();
-                return node?.isConnected && node.getClientRects().length > 0;
-            });
-            const focused = editors.filter(editor => editor.hasTextFocus());
-            const candidates = focused.length === 1 ? focused : editors;
-            if (candidates.length !== 1) return null;
-            model = candidates[0].getModel();
-        } else {
-            const models = api.getModels().filter(model => !model.isDisposed());
-            if (models.length !== 1) return null;
-            model = models[0];
+        const isApi = api =>
+            typeof api?.getEditors === 'function' &&
+            typeof api.getModels === 'function' &&
+            typeof api.EditorOption?.readOnly === 'number';
+        let api = globalThis.monaco?.editor;
+        if (!isApi(api)) {
+            // Read registered factory descriptions as data. Never fetch/evaluate source or
+            // require every module: only bounded candidates advertising Monaco's exports.
+            const candidates = [];
+            const seenRuntimes = new Set();
+            let inspected = 0;
+            let unsafe = false;
+            const queues = Object.getOwnPropertyNames(globalThis).filter(name =>
+                name.startsWith('webpackChunk'),
+            );
+            if (queues.length > 32) return unavailable('EDITOR_DISCOVERY_FAILED');
+            for (const name of queues) {
+                const queue = Object.getOwnPropertyDescriptor(globalThis, name)?.value;
+                if (
+                    !Array.isArray(queue) ||
+                    typeof queue.push !== 'function' ||
+                    queue.push === Array.prototype.push
+                ) {
+                    continue;
+                }
+                let active = true;
+                const entry = [
+                    [`neetcodeTrackingEditor_${Date.now()}_${Math.random().toString(36).slice(2)}`],
+                    {},
+                    runtime => {
+                        if (
+                            !active ||
+                            typeof runtime !== 'function' ||
+                            !runtime.m ||
+                            seenRuntimes.has(runtime)
+                        ) {
+                            return;
+                        }
+                        seenRuntimes.add(runtime);
+                        const ids = Object.keys(runtime.m);
+                        inspected += ids.length;
+                        if (inspected > 10000) {
+                            unsafe = true;
+                            return;
+                        }
+                        for (const id of ids) {
+                            const factory = runtime.m[id];
+                            if (typeof factory !== 'function') continue;
+                            const source = Function.prototype.toString.call(factory).slice(0, 4096);
+                            if (
+                                ['editor', 'languages', 'Uri', 'Range', 'KeyCode'].every(key =>
+                                    new RegExp(`(?:[,{])\\s*${key}\\s*:`).test(source),
+                                )
+                            ) {
+                                candidates.push({ runtime, id });
+                                if (candidates.length > 8) {
+                                    unsafe = true;
+                                    return;
+                                }
+                            }
+                        }
+                    },
+                ];
+                try {
+                    queue.push(entry);
+                } catch {
+                    unsafe = true;
+                } finally {
+                    active = false;
+                    // Preserve the page's loader and all pre-existing chunk entries.
+                    const index = Array.prototype.indexOf.call(queue, entry);
+                    if (index >= 0) Array.prototype.splice.call(queue, index, 1);
+                }
+                if (unsafe) return unavailable('EDITOR_DISCOVERY_FAILED');
+            }
+            const apis = [];
+            for (const candidate of candidates) {
+                let found;
+                try {
+                    found = candidate.runtime(candidate.id)?.editor;
+                } catch {
+                    return unavailable('EDITOR_DISCOVERY_FAILED');
+                }
+                if (!isApi(found)) continue;
+                if (
+                    !apis.some(
+                        known =>
+                            known.getEditors === found.getEditors &&
+                            known.getModels === found.getModels &&
+                            known.EditorOption.readOnly === found.EditorOption.readOnly,
+                    )
+                ) {
+                    apis.push(found);
+                }
+            }
+            if (apis.length > 1) return unavailable('EDITOR_AMBIGUOUS');
+            api = apis[0];
         }
-        if (!model || model.isDisposed()) return null;
+        if (!api) return unavailable('EDITOR_API_UNAVAILABLE');
+        const candidates = [];
+        for (const editor of api.getEditors()) {
+            const node = editor.getDomNode();
+            if (!node?.isConnected || !node.getClientRects().length) continue;
+            if (typeof editor.getOption !== 'function') {
+                return unavailable('EDITOR_API_UNAVAILABLE');
+            }
+            const readOnly = editor.getOption(api.EditorOption.readOnly);
+            if (typeof readOnly !== 'boolean') return unavailable('EDITOR_API_UNAVAILABLE');
+            if (!readOnly) candidates.push(editor);
+        }
+        if (!candidates.length) return unavailable('EDITOR_NOT_FOUND');
+        if (candidates.length !== 1) return unavailable('EDITOR_AMBIGUOUS');
+        const model = candidates[0].getModel();
+        if (!model || model.isDisposed()) return unavailable('EDITOR_MODEL_UNAVAILABLE');
         const code = model.getValue();
         const language = model.getLanguageId();
-        return typeof code === 'string' &&
-            code.length <= 1048576 &&
-            typeof language === 'string' &&
-            language.length > 0 &&
-            language.length <= 100
-            ? { code, language }
-            : null;
+        if (globalThis.location.href !== pageUrl) return unavailable('PAGE_CHANGED');
+        if (
+            typeof code !== 'string' ||
+            typeof language !== 'string' ||
+            !language ||
+            language.length > 100
+        ) {
+            return unavailable('EDITOR_SNAPSHOT_INVALID');
+        }
+        if (code.length > 1048576) return unavailable('EDITOR_TOO_LARGE');
+        return { code, language };
     } catch {
-        return null;
+        return unavailable('EDITOR_READ_FAILED');
     }
 }
 
@@ -828,24 +943,36 @@ async function getEditorCode(sender, pageUrl, revision) {
                 args: [pageUrl],
             }),
             new Promise((_resolve, reject) => {
-                timer = setTimeout(() => reject(new Error('Editor timeout')), 5000);
+                timer = setTimeout(() => reject({ publicCode: 'EDITOR_READ_TIMEOUT' }), 5000);
             }),
         ]);
         checkRevision(revision);
         const snapshot = results?.[0]?.result;
+        const pageErrors = [
+            'EDITOR_API_UNAVAILABLE',
+            'EDITOR_DISCOVERY_FAILED',
+            'EDITOR_NOT_FOUND',
+            'EDITOR_AMBIGUOUS',
+            'EDITOR_MODEL_UNAVAILABLE',
+            'EDITOR_SNAPSHOT_INVALID',
+            'EDITOR_TOO_LARGE',
+            'EDITOR_READ_FAILED',
+            'PAGE_CHANGED',
+        ];
+        if (pageErrors.includes(snapshot?.errorCode)) fail(snapshot.errorCode);
         if (
             typeof snapshot?.code !== 'string' ||
-            new TextEncoder().encode(snapshot.code).byteLength > 1048576 ||
             typeof snapshot.language !== 'string' ||
             !snapshot.language ||
             snapshot.language.length > 100
         ) {
-            fail('EDITOR_UNAVAILABLE');
+            fail('EDITOR_SNAPSHOT_INVALID');
         }
+        if (new TextEncoder().encode(snapshot.code).byteLength > 1048576) fail('EDITOR_TOO_LARGE');
         return { ok: true, code: snapshot.code, language: snapshot.language };
     } catch (error) {
         if (error.publicCode) throw error;
-        fail('EDITOR_UNAVAILABLE');
+        fail('EDITOR_INJECTION_FAILED');
     } finally {
         clearTimeout(timer);
     }
@@ -947,12 +1074,55 @@ chrome.runtime.onInstalled.addListener(details => {
     if (details.reason === 'install') chrome.runtime.openOptionsPage().catch(() => {});
 });
 
+function readRequestData(details) {
+    const chunks = details.requestBody?.raw;
+    if (
+        !Array.isArray(chunks) ||
+        !chunks.length ||
+        chunks.some(chunk => !(chunk.bytes instanceof ArrayBuffer))
+    ) {
+        return null;
+    }
+    const size = chunks.reduce((total, chunk) => total + chunk.bytes.byteLength, 0);
+    if (size > 2097152) return null;
+    const decoder = new TextDecoder('utf-8', { fatal: true });
+    const text =
+        chunks.map(chunk => decoder.decode(chunk.bytes, { stream: true })).join('') +
+        decoder.decode();
+    const parsed = JSON.parse(text);
+    return parsed?.data || parsed;
+}
+
 chrome.webRequest.onBeforeRequest.addListener(
     details => {
+        if (details.type === 'main_frame' && details.tabId >= 0) {
+            discardTabCaptures(details.tabId);
+            return;
+        }
         if (details.url.includes('githubFunctionHttp')) {
+            // This endpoint also serves polling, settings and historical syncs.
+            // Only a submitted-code commit may consume the pending capture.
+            let data;
+            try {
+                data = readRequestData(details);
+                if (details.method !== 'POST' || data?.functionId !== 'commitToGitHub') {
+                    return;
+                }
+            } catch {
+                return;
+            }
             const stored = pendingCodeByTab[details.tabId];
+            if (
+                !stored ||
+                details.frameId !== 0 ||
+                details.documentId !== stored.documentId ||
+                data.problemId !== stored.title ||
+                data.code !== stored.code
+            ) {
+                return;
+            }
             delete pendingCodeByTab[details.tabId];
-            if (!stored || typeof details.requestId !== 'string') return;
+            if (typeof details.requestId !== 'string') return;
             for (const [id, capture] of syncCapturesByRequestId) {
                 if (Date.now() - capture.started > 120000) syncCapturesByRequestId.delete(id);
             }
@@ -967,28 +1137,17 @@ chrome.webRequest.onBeforeRequest.addListener(
             return;
         }
         if (details.url.includes('executeCodeFunctionHttp')) {
+            if (
+                details.frameId !== 0 ||
+                typeof details.documentId !== 'string' ||
+                !details.documentId
+            ) {
+                return;
+            }
             delete pendingCodeByTab[details.tabId];
             if (details.requestBody && details.requestBody.raw) {
                 try {
-                    const chunks = details.requestBody.raw;
-                    if (
-                        !chunks.length ||
-                        chunks.some(chunk => !(chunk.bytes instanceof ArrayBuffer))
-                    ) {
-                        return;
-                    }
-                    const size = chunks.reduce((total, chunk) => total + chunk.bytes.byteLength, 0);
-                    if (size > 2097152) return;
-                    const decoder = new TextDecoder('utf-8', { fatal: true });
-                    const decodedString =
-                        chunks
-                            .map(chunk => decoder.decode(chunk.bytes, { stream: true }))
-                            .join('') + decoder.decode();
-
-                    const parsed = JSON.parse(decodedString);
-
-                    // Updated structure (no more data.data)
-                    const data = parsed.data || parsed;
+                    const data = readRequestData(details);
 
                     const title = data.problemId;
                     const code = data.rawCode;
@@ -1003,22 +1162,38 @@ chrome.webRequest.onBeforeRequest.addListener(
                     if (details.tabId >= 0) {
                         // Store safely per tab
                         const navigation = navigationByTab.get(details.tabId) || 0;
+                        const initialBinding = { pending: true, destinations: [] };
                         // Bind to Chrome's actual page URL, not NeetCode's backend problem ID.
                         const pageUrl = chrome.tabs
                             .get(details.tabId)
-                            .then(tab =>
-                                navigation === (navigationByTab.get(details.tabId) || 0) &&
-                                isProblemSender({
-                                    id: chrome.runtime.id,
-                                    tab,
-                                    url: tab.url,
-                                    frameId: 0,
-                                })
+                            .then(tab => {
+                                const currentNavigation = navigationByTab.get(details.tabId) || 0;
+                                const destination = initialBinding.destinations[0];
+                                const key = submissionRouteKey(tab.url);
+                                // A destination-only result cannot establish the original page.
+                                const provenTransition =
+                                    initialBinding.destinations.length === 1 &&
+                                    currentNavigation === navigation + 1 &&
+                                    tab.url !== destination &&
+                                    key &&
+                                    key === submissionRouteKey(destination);
+                                return (navigation === currentNavigation || provenTransition) &&
+                                    isProblemSender({
+                                        id: chrome.runtime.id,
+                                        tab,
+                                        url: tab.url,
+                                        frameId: 0,
+                                    })
                                     ? tab.url
-                                    : null,
-                            )
-                            .catch(() => null);
+                                    : null;
+                            })
+                            .catch(() => null)
+                            .finally(() => {
+                                initialBinding.pending = false;
+                            });
                         pendingCodeByTab[details.tabId] = {
+                            initialBinding,
+                            documentId: details.documentId,
                             title,
                             code,
                             language,
@@ -1034,22 +1209,25 @@ chrome.webRequest.onBeforeRequest.addListener(
         }
     },
     {
-        urls: ['https://neetcode.io/api/*'], // updated filter
+        urls: ['https://neetcode.io/*'],
     },
     ['requestBody'],
 );
 
-function sendToTab(tabId, message) {
-    return chrome.tabs.sendMessage(tabId, message, { frameId: 0 });
+function sendToTab(tabId, message, documentId = null) {
+    return chrome.tabs.sendMessage(tabId, message, {
+        frameId: 0,
+        ...(documentId ? { documentId } : {}),
+    });
 }
 
-async function ensurePageReceiver(tabId) {
+async function ensurePageReceiver(tabId, documentId = null) {
     // Probe before sending work: retrying an actual save could duplicate commits.
     const ready = async () => {
         let timer;
         try {
             const result = await Promise.race([
-                sendToTab(tabId, { type: 'PAGE_READY' }),
+                sendToTab(tabId, { type: 'PAGE_READY' }, documentId),
                 new Promise(resolve => {
                     timer = setTimeout(() => resolve(null), 2000);
                 }),
@@ -1066,7 +1244,7 @@ async function ensurePageReceiver(tabId) {
     }
     try {
         await chrome.scripting.executeScript({
-            target: { tabId, frameIds: [0] },
+            target: documentId ? { tabId, documentIds: [documentId] } : { tabId, frameIds: [0] },
             world: 'ISOLATED',
             files: ['content-script.js'],
         });
@@ -1089,6 +1267,7 @@ chrome.webRequest.onCompleted.addListener(
         if (
             !stored ||
             stored.tabId !== tabId ||
+            details.documentId !== stored.documentId ||
             !(details.statusCode >= 200 && details.statusCode < 300) ||
             Date.now() - stored.started > 120000
         ) {
@@ -1101,26 +1280,34 @@ chrome.webRequest.onCompleted.addListener(
             if (!pageUrl || stored.navigation !== (navigationByTab.get(tabId) || 0)) {
                 fail('PAGE_CHANGED');
             }
-            const uploadTicket = await issueUploadTicket(tabId, pageUrl);
-            await ensurePageReceiver(tabId);
+            const uploadTicket = await issueUploadTicket(tabId, pageUrl, stored.documentId);
+            await ensurePageReceiver(tabId, stored.documentId);
             if (stored.navigation !== (navigationByTab.get(tabId) || 0)) fail('PAGE_CHANGED');
             if (latestSuccessfulSyncByTab.get(tabId) !== stored.sequence) return;
-            const response = await sendToTab(tabId, {
-                type: 'CODE_DATA',
-                title: stored.title,
-                code: stored.code,
-                language: stored.language,
-                uploadTicket,
-                pageUrl,
-            });
+            const response = await sendToTab(
+                tabId,
+                {
+                    type: 'CODE_DATA',
+                    title: stored.title,
+                    code: stored.code,
+                    language: stored.language,
+                    uploadTicket,
+                    pageUrl,
+                },
+                stored.documentId,
+            );
             // The receiver explains stale-page rejection; never retry a delivered save.
             if (response?.reason === 'PAGE_CHANGED') return;
             if (response?.accepted !== true) fail('PAGE_UNAVAILABLE');
         } catch (error) {
-            await sendToTab(tabId, {
-                type: 'SAVE_BLOCKED',
-                error: publicError(error).error,
-            }).catch(() => {});
+            await sendToTab(
+                tabId,
+                {
+                    type: 'SAVE_BLOCKED',
+                    error: publicError(error).error,
+                },
+                stored.documentId,
+            ).catch(() => {});
         }
     },
     { urls: ['https://neetcode.io/api/*'] },
@@ -1170,14 +1357,78 @@ chrome.tabs.onRemoved.addListener(tabId => {
     }
 });
 
-chrome.tabs.onUpdated.addListener((tabId, change) => {
-    if (change.url || change.status === 'loading') {
-        navigationByTab.set(tabId, (navigationByTab.get(tabId) || 0) + 1);
-        delete pendingCodeByTab[tabId];
-        latestSuccessfulSyncByTab.delete(tabId);
-        for (const [id, capture] of syncCapturesByRequestId) {
-            if (capture.tabId === tabId) syncCapturesByRequestId.delete(id);
+function submissionRouteKey(value) {
+    try {
+        const url = new URL(value);
+        const match = url.pathname.match(/^(\/problems\/[^/]+)(?:\/(?:question|history))?\/?$/);
+        const indices = url.searchParams.getAll('submissionIndex');
+        if (
+            url.origin !== 'https://neetcode.io' ||
+            !match ||
+            indices.length > 1 ||
+            (indices.length && !/^\d+$/.test(indices[0]))
+        ) {
+            return null;
         }
+        url.pathname = match[1];
+        url.searchParams.delete('submissionIndex');
+        return url.href;
+    } catch {
+        return null;
+    }
+}
+
+function rebindSubmissionCapture(capture, pageUrl, navigation, tabId) {
+    // Shared with a sync association created before the initial lookup resolves.
+    if (capture.initialBinding.pending && capture.initialBinding.destinations.length < 2) {
+        capture.initialBinding.destinations.push(pageUrl);
+    }
+    const previousUrl = capture.pageUrl;
+    capture.navigation = navigation;
+    // Only submission-result navigation on the same problem may rebind a capture.
+    // A failed binding stays null, even if the user subsequently returns.
+    capture.pageUrl = Promise.resolve(previousUrl).then(oldUrl => {
+        const key = oldUrl && submissionRouteKey(oldUrl);
+        const boundUrl = key && key === submissionRouteKey(pageUrl) ? pageUrl : null;
+        if (!boundUrl) {
+            // Release cancelled solution data without deleting a newer capture.
+            if (pendingCodeByTab[tabId] === capture) delete pendingCodeByTab[tabId];
+            for (const [id, stored] of syncCapturesByRequestId) {
+                if (stored === capture) syncCapturesByRequestId.delete(id);
+            }
+        }
+        return boundUrl;
+    });
+}
+
+function discardTabCaptures(tabId) {
+    navigationByTab.set(tabId, (navigationByTab.get(tabId) || 0) + 1);
+    delete pendingCodeByTab[tabId];
+    latestSuccessfulSyncByTab.delete(tabId);
+    for (const [id, capture] of syncCapturesByRequestId) {
+        if (capture.tabId === tabId) syncCapturesByRequestId.delete(id);
+    }
+    for (const [ticket, entry] of uploadTickets) {
+        if (entry.tabId === tabId) uploadTickets.delete(ticket);
+    }
+}
+
+chrome.tabs.onUpdated.addListener((tabId, change) => {
+    // Loading alone also occurs for same-document History API updates. Only URL
+    // changes advance the route generation; main_frame requests discard new documents.
+    if (change.url) {
+        navigationByTab.set(tabId, (navigationByTab.get(tabId) || 0) + 1);
+        const navigation = navigationByTab.get(tabId);
+        if (pendingCodeByTab[tabId]) {
+            rebindSubmissionCapture(pendingCodeByTab[tabId], change.url, navigation, tabId);
+        }
+        for (const capture of syncCapturesByRequestId.values()) {
+            if (capture.tabId === tabId) {
+                rebindSubmissionCapture(capture, change.url, navigation, tabId);
+            }
+        }
+    }
+    if (change.url || change.status === 'loading') {
         for (const [ticket, entry] of uploadTickets) {
             if (entry.tabId === tabId) uploadTickets.delete(ticket);
         }

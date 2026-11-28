@@ -1,6 +1,6 @@
 # Privacy policy
 
-**NeetCode Tracking 2.0 · Updated November 24, 2026**
+**NeetCode Tracking 2.0 · Updated November 27, 2026**
 
 NeetCode Tracking saves your NeetCode solutions and problem descriptions to a GitHub repository you choose. It has no application backend, analytics, advertising, or data-sale functionality.
 
@@ -16,6 +16,8 @@ NeetCode Tracking saves your NeetCode solutions and problem descriptions to a Gi
 The extension uses this information only to configure your connection, protect and unlock your token, test GitHub access, and save or update problem files in your chosen repository.
 
 Website access is limited to the declared `https://neetcode.io/*` and `https://api.github.com/*` hosts. Toolbar saves use the existing NeetCode host access to read the editor.
+
+Automatic saves also use Chrome-provided document identifiers and NeetCode document-navigation events to prevent a captured submission from being saved through a different page document. This temporary context stays in the background worker and is not sent to GitHub.
 
 Your token is sent to GitHub over HTTPS for authentication. Saving sends solution code, problem descriptions, and commit information to GitHub. **If your repository is public, its saved files and commit details—including the committer name and email—are public.** Use a private repository and a GitHub noreply email if appropriate for your needs.
 

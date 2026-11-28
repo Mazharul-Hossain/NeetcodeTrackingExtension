@@ -196,6 +196,13 @@ function legacyProblemTitle(title) {
 function getProblemHeading(article) {
     const scoped = article.querySelector('h1');
     if (scoped) return scoped;
+    // NeetCode places the title beside app-article, inside the question panel.
+    // Modal headings elsewhere in the document must not make it ambiguous.
+    const panel = article.closest?.('.question-tab');
+    if (panel) {
+        const titles = panel.querySelectorAll('h1.problem-title');
+        return titles.length === 1 ? titles[0] : null;
+    }
     // A unique visible content heading is safer than the first h1 in navigation.
     const headings = Array.from(document.querySelectorAll('h1')).filter(
         heading =>
@@ -586,10 +593,39 @@ async function processAndUpload(
     }
 }
 
+function editorFailureCode(code) {
+    const allowed = [
+        'EDITOR_UNAVAILABLE',
+        'EDITOR_API_UNAVAILABLE',
+        'EDITOR_DISCOVERY_FAILED',
+        'EDITOR_NOT_FOUND',
+        'EDITOR_AMBIGUOUS',
+        'EDITOR_MODEL_UNAVAILABLE',
+        'EDITOR_SNAPSHOT_INVALID',
+        'EDITOR_TOO_LARGE',
+        'EDITOR_READ_FAILED',
+        'EDITOR_INJECTION_FAILED',
+        'EDITOR_READ_TIMEOUT',
+        'EDITOR_MESSAGE_FAILED',
+        'EDITOR_RESPONSE_INVALID',
+        'PAGE_CHANGED',
+        'SETTINGS_CHANGED',
+        'STORAGE_UNAVAILABLE',
+        'UNAUTHORIZED',
+    ];
+    return allowed.includes(code) ? code : 'EDITOR_RESPONSE_INVALID';
+}
+
 async function getCode(pageUrl) {
-    const result = await chrome.runtime.sendMessage({ type: 'GET_EDITOR_CODE', pageUrl });
-    if (!result?.ok || typeof result.code !== 'string' || typeof result.language !== 'string') {
-        throw new Error('Editor unavailable');
+    let result;
+    try {
+        result = await chrome.runtime.sendMessage({ type: 'GET_EDITOR_CODE', pageUrl });
+    } catch {
+        throw { code: 'EDITOR_MESSAGE_FAILED' };
+    }
+    if (!result?.ok) throw { code: editorFailureCode(result?.error?.code) };
+    if (typeof result.code !== 'string' || typeof result.language !== 'string') {
+        throw { code: 'EDITOR_RESPONSE_INVALID' };
     }
     return { code: result.code, language: result.language };
 }
@@ -597,7 +633,7 @@ async function getCode(pageUrl) {
 async function saveManual(message) {
     try {
         const snapshot = await getCode(message.pageUrl);
-        if (location.href !== message.pageUrl) throw new Error('Page changed');
+        if (location.href !== message.pageUrl) throw { code: 'PAGE_CHANGED' };
         await processAndUpload(
             snapshot.code,
             'manual',
@@ -605,9 +641,9 @@ async function saveManual(message) {
             message.pageUrl,
             snapshot.language,
         );
-    } catch {
+    } catch (error) {
         showToast(
-            'Could not read the complete editor code. No files were saved. Try again on the problem page.',
+            `[${editorFailureCode(error?.code)}] Could not read the complete editor code. No files were saved. Try again on the problem page.`,
             '#e74c3c',
         );
     }

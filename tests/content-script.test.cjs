@@ -276,6 +276,36 @@ test('problem heading prefers the article and refuses ambiguous page headings', 
     assert.equal(f.context.getProblemHeading(article), null);
 });
 
+test('problem heading uses the owning question panel despite unrelated modal headings', () => {
+    const heading = textContent => ({
+        textContent,
+        closest: () => null,
+        getClientRects: () => [{}],
+    });
+    const title = heading('Non-Cyclical Number');
+    const f = contentFixture({
+        document: { querySelectorAll: () => [title, heading('Editor Settings')] },
+    });
+    let titles = [title];
+    const article = {
+        querySelector: () => null,
+        closest: selector => {
+            assert.equal(selector, '.question-tab');
+            return {
+                querySelectorAll: selector => {
+                    assert.equal(selector, 'h1.problem-title');
+                    return titles;
+                },
+            };
+        },
+    };
+    assert.equal(f.context.getProblemHeading(article), title);
+    titles = [];
+    assert.equal(f.context.getProblemHeading(article), null);
+    titles = [title, { textContent: 'Other problem' }];
+    assert.equal(f.context.getProblemHeading(article), null);
+});
+
 test('description lists preserve literal comparisons and render math only from KaTeX source', () => {
     const f = contentFixture();
     const text = textContent => ({ nodeType: 3, textContent });

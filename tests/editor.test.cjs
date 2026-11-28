@@ -10,11 +10,18 @@ const model = (code = fullCode, language = 'python') => ({
     getValue: () => code,
     getLanguageId: () => language,
 });
-const editor = (value, visible = true, focused = false) => ({
+const editor = (value, visible = true, focused = false, readOnly = false) => ({
     getDomNode: () => ({ isConnected: true, getClientRects: () => (visible ? [{}] : []) }),
     hasTextFocus: () => focused,
     getModel: () => value,
+    getOption: () => readOnly,
 });
+const editorApi = getEditors => ({
+    EditorOption: { readOnly: 91 },
+    getEditors,
+    getModels: () => [],
+});
+const modelApi = getModels => editorApi(() => getModels().map(value => editor(value)));
 
 function read(api, url = pageUrl, snapshot = false) {
     const f = workerFixture();
@@ -28,47 +35,116 @@ function read(api, url = pageUrl, snapshot = false) {
 }
 
 test('model snapshot pairs the complete code with its own language', () => {
-    const snapshot = read({ getModels: () => [model(fullCode, 'python')] }, pageUrl, true);
+    const snapshot = read(
+        modelApi(() => [model(fullCode, 'python')]),
+        pageUrl,
+        true,
+    );
     assert.equal(snapshot.code, fullCode);
     assert.equal(snapshot.language, 'python');
 });
 
 test('model capture preserves full multiline Unicode code and indentation regardless of DOM lines', () => {
-    assert.equal(read({ getEditors: () => [editor(model())] }), fullCode);
-    assert.equal(read({ getModels: () => [model()] }), fullCode);
+    assert.equal(read(editorApi(() => [editor(model())])), fullCode);
+    assert.equal(read(modelApi(() => [model()])), fullCode);
 });
 
-test('model capture selects the visible focused editor rather than the first registered model', () => {
+test('model capture selects the visible editable editor rather than hidden or read-only editors', () => {
+    assert.equal(read(editorApi(() => [editor(model('wrong'), false), editor(model())])), fullCode);
     assert.equal(
-        read({ getEditors: () => [editor(model('wrong'), false), editor(model())] }),
+        read(
+            editorApi(() => [
+                editor(model('wrong'), true, false, true),
+                editor(model(), true, true),
+            ]),
+        ),
         fullCode,
     );
+});
+
+test('page-world failures return fixed diagnostic codes without raw errors', () => {
+    const cases = [
+        [undefined, 'EDITOR_API_UNAVAILABLE'],
+        [{}, 'EDITOR_API_UNAVAILABLE'],
+        [modelApi(() => []), 'EDITOR_NOT_FOUND'],
+        [modelApi(() => [model(), model()]), 'EDITOR_AMBIGUOUS'],
+        [editorApi(() => [editor(null)]), 'EDITOR_MODEL_UNAVAILABLE'],
+        [modelApi(() => [model('code', '')]), 'EDITOR_SNAPSHOT_INVALID'],
+        [modelApi(() => [model('x'.repeat(1048577))]), 'EDITOR_TOO_LARGE'],
+        [
+            modelApi(() => {
+                throw new Error('private page details');
+            }),
+            'EDITOR_READ_FAILED',
+        ],
+    ];
+    for (const [api, code] of cases) {
+        const result = read(api, pageUrl, true);
+        assert.equal(result?.errorCode, code);
+        assert.doesNotMatch(JSON.stringify(result), /private page details/);
+    }
     assert.equal(
-        read({ getEditors: () => [editor(model('wrong')), editor(model(), true, true)] }),
-        fullCode,
+        read(
+            modelApi(() => [model()]),
+            pageUrl + '-other',
+            true,
+        )?.errorCode,
+        'PAGE_CHANGED',
     );
+});
+
+test('worker preserves only allowlisted editor diagnostics from the page world', async () => {
+    for (const code of [
+        'EDITOR_API_UNAVAILABLE',
+        'EDITOR_DISCOVERY_FAILED',
+        'EDITOR_NOT_FOUND',
+        'EDITOR_AMBIGUOUS',
+        'EDITOR_MODEL_UNAVAILABLE',
+        'EDITOR_SNAPSHOT_INVALID',
+        'EDITOR_TOO_LARGE',
+        'EDITOR_READ_FAILED',
+        'PAGE_CHANGED',
+    ]) {
+        const f = workerFixture();
+        f.chrome.scripting = { executeScript: async () => [{ result: { errorCode: code } }] };
+        const result = await f.request({ type: 'GET_EDITOR_CODE', pageUrl }, problemSender);
+        assert.equal(result.error.code, code);
+    }
+    const f = workerFixture();
+    f.chrome.scripting = {
+        executeScript: async () => [
+            { result: { errorCode: 'AUTH_FAILED', message: 'private page details' } },
+        ],
+    };
+    const result = await f.request({ type: 'GET_EDITOR_CODE', pageUrl }, problemSender);
+    assert.equal(result.error.code, 'EDITOR_SNAPSHOT_INVALID');
+    assert.doesNotMatch(JSON.stringify(result), /private page details/);
 });
 
 test('ambiguous, missing, disposed or changed-page models fail without scraping', () => {
     for (const api of [
         {},
-        { getModels: () => [] },
-        { getModels: () => [model(), model('other')] },
-        { getModels: () => [{ isDisposed: () => true }] },
-        { getEditors: () => [editor(model()), editor(model('other'))] },
-        { getEditors: () => [editor(model(), false)], getModels: () => [model()] },
-        { getEditors: () => [editor(null)] },
-        { getModels: () => [model('x'.repeat(1048577))] },
-        {
-            getModels: () => {
-                throw new Error('private page error');
-            },
-        },
+        modelApi(() => []),
+        modelApi(() => [model(), model('other')]),
+        modelApi(() => [{ isDisposed: () => true }]),
+        editorApi(() => [editor(model()), editor(model('other'))]),
+        editorApi(() => [editor(model(), false)]),
+        editorApi(() => [editor(null)]),
+        modelApi(() => [model('x'.repeat(1048577))]),
+        modelApi(() => {
+            throw new Error('private page error');
+        }),
     ]) {
         assert.equal(read(api), null);
     }
-    assert.equal(read({ getModels: () => [model()] }, pageUrl + '-other'), null);
-    assert.equal(read({ getModels: () => [model('')] }), '');
+    assert.equal(
+        read(
+            modelApi(() => [model()]),
+            pageUrl + '-other',
+        ),
+        null,
+    );
+    assert.equal(read(modelApi(() => [model('')])), '');
 });
 
 test('worker reads only the authorized top frame in MAIN without supplying credentials', async () => {
@@ -108,7 +184,7 @@ test('worker sanitizes injection failures and invalid model results', async () =
         const f = workerFixture();
         f.chrome.scripting = { executeScript: async () => [{ result: value }] };
         const result = await f.request({ type: 'GET_EDITOR_CODE', pageUrl }, problemSender);
-        assert.equal(result.error.code, 'EDITOR_UNAVAILABLE');
+        assert.equal(result.error.code, 'EDITOR_SNAPSHOT_INVALID');
         assert.equal('code' in result, false);
     }
     const f = workerFixture();
@@ -118,7 +194,7 @@ test('worker sanitizes injection failures and invalid model results', async () =
         },
     };
     const result = await f.request({ type: 'GET_EDITOR_CODE', pageUrl }, problemSender);
-    assert.equal(result.error.code, 'EDITOR_UNAVAILABLE');
+    assert.equal(result.error.code, 'EDITOR_INJECTION_FAILED');
     assert.doesNotMatch(JSON.stringify(result), /private browser error/);
 });
 
@@ -141,6 +217,6 @@ test('a stalled page-world read times out with a fixed error and releases its ti
     f.chrome.scripting = { executeScript: () => new Promise(() => {}) };
     const pending = f.context.getEditorCode(problemSender, pageUrl, 0);
     timeout();
-    await assert.rejects(pending, error => error.publicCode === 'EDITOR_UNAVAILABLE');
+    await assert.rejects(pending, error => error.publicCode === 'EDITOR_READ_TIMEOUT');
     assert.equal(cleared, true);
 });

@@ -17,6 +17,8 @@ These tests use synthetic code, repository contents, credentials and browser bou
 
 ## Pending live checks
 
+November 27 update: the user reports passing file accuracy, manual repeat/update saves, production restart/unlock and editor-panel checks. A real automatic-create save is verified in [ae08ce4](https://github.com/Mazharul-Hossain/neetcode-submissions-r8yxpmr9/commit/ae08ce4bd754aa49726414e01804813b89892dbf). The [automatic-trigger follow-up](2026-11-27-automatic-trigger.md) records the submission URL/loading failure, document-binding fix and evidence. Composite checklist entries below remain unchecked where additional scenarios are still unverified.
+
 Record the extension commit, Chrome/OS versions, pass/fail and observations when testing. Keep all entries pending until actually exercised. Use a disposable initialized repository and synthetic solutions; do not put a token, PIN, private solution or storage contents in evidence.
 
 - [ ] **Automatic create and update:** unlock the production extension and configure NeetCode's own GitHub integration. Trigger a successful sync on a new test problem. Verify one extension commit contains both solution and Markdown. Change the solution and sync again; verify one update commit and preserved Notes/creation date. Separate NeetCode's own integration commits from extension commits when counting. Repeat unchanged code and then toolbar-save it; verify no additional extension commit and the already-saved toast.

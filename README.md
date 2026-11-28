@@ -61,7 +61,7 @@ Every successful **Save settings** locks the vault, including changes to your na
 2. Click the extension's toolbar icon.
 3. Wait for **Saved via click**, **Updated via click**, or **Already saved, nothing to update.** on the page.
 
-Toolbar saves read the complete Monaco editor model and its language together, preserving lines and indentation regardless of scrolling. Later changes to the language selector do not relabel captured code. If the editor cannot be read unambiguously, the save stops with an error instead of uploading partial code. An empty editor saves the problem description only. Files are organized like this:
+Toolbar saves read the complete Monaco editor model and its language together, preserving lines and indentation regardless of scrolling. The reader selects the single visible, editable editor and excludes read-only output panels. Later changes to the language selector do not relabel captured code. If the editor cannot be read unambiguously, the save stops with an error instead of uploading partial code. An empty editor saves the problem description only. Files are organized like this:
 
 ```text
 Data Structures & Algorithms/    # or System Design/
@@ -82,11 +82,11 @@ Category detection uses an explicit `system-design` URL path segment or a same-o
 
 ### Automatic saves
 
-Automatic capture runs only after NeetCode's own GitHub-sync request completes with a successful HTTP status (2xx). Failed sync responses discard the captured submission. This requires NeetCode's built-in GitHub integration to be configured; running or submitting code alone does not guarantee this trigger. The toolbar save works independently of that integration. Both paths reconnect missing page receivers without refreshing the editor; only readiness probes are retried, never a delivered save.
+Automatic capture runs only after NeetCode's submitted-code GitHub commit operation (`commitToGitHub`) completes with a successful HTTP status (2xx). Status polling, settings requests and historical-submission syncs do not trigger it. Failed commit responses discard the captured submission. This requires NeetCode's built-in GitHub integration to be configured; running or submitting code alone does not guarantee this trigger. The toolbar save works independently of that integration. Both paths reconnect missing page receivers without refreshing the editor; only readiness probes are retried, never a delivered save.
 
 Each sync request keeps the code and language captured when that request starts. A later run does not replace an in-flight submission, and an older sync completion does not replace a newer successful sync. Automatic saves use the recorded request language rather than the current selector. If that language is missing, no files are saved; use the toolbar to capture the current editor instead. In-flight sync associations expire after two minutes and are discarded on request errors, navigation, or settings/lock changes.
 
-Pending saves are cancelled by tab URL changes or a loading event. Capture and delivery require an exact page URL match, including the query string. A stale automatic message rejected by the page shows a retry toast. The behavior of real NeetCode submissions that change the URL is still [pending browser verification](docs/verification/2026-11-24-save-correctness.md).
+Automatic captures can follow NeetCode's submission-results transition between Question and Submissions for the same problem, including a numeric `submissionIndex` change. Other query parameters and the fragment must remain unchanged, and the commit request must match the captured problem ID and code. Switching problems or loading a new document cancels the capture. Upload tickets are invalidated on every URL change and newly issued tickets and delivery remain bound to the exact current URL. A stale automatic message rejected by the page shows a retry toast. The [automatic-save investigation](docs/verification/2026-11-27-automatic-trigger.md) records live evidence and remaining checks.
 
 ## Unlocking and security
 
@@ -109,7 +109,7 @@ Connection settings are stored locally, not synced across devices. The extension
 | --- | --- |
 | `scripting` | Reconnect the page script on already-open NeetCode tabs and read the complete Monaco editor model for toolbar saves |
 | `storage` | Store connection settings, the encrypted token, and the unlocked session |
-| `webRequest` | Observe NeetCode submission and GitHub-sync events for automatic capture |
+| `webRequest` | Observe NeetCode submission and GitHub-sync events for automatic capture, and document navigations to cancel stale captures |
 | `neetcode.io` | Extract the problem description and solution |
 | `api.github.com` | Authenticate and save files to your repository |
 
@@ -131,6 +131,29 @@ Toolbar saves and page-script recovery use the declared `neetcode.io` host acces
 | Automatic capture does not run | Check NeetCode's built-in GitHub integration, or use the toolbar save. |
 | Could not read the complete editor code | Wait for the editor to finish loading, then retry. No files are saved if the editor is unavailable or ambiguous. |
 | Problem details did not load | Wait for the problem page to finish loading, then retry. Missing optional topic tags do not prevent saving. |
+
+### Editor error codes
+
+Manual-save failures start with a bracketed code, for example `[EDITOR_API_UNAVAILABLE]`. Include that code, the problem URL, selected language, and Chrome version when reporting a bug. Never include your token, PIN, or private solution.
+
+| Code | Meaning |
+| --- | --- |
+| `EDITOR_API_UNAVAILABLE` | A supported Monaco editor API could not be found. |
+| `EDITOR_DISCOVERY_FAILED` | The page's editor integration could not be identified safely. |
+| `EDITOR_NOT_FOUND` | No visible, editable editor was found. |
+| `EDITOR_AMBIGUOUS` | Multiple editor APIs or visible, editable editors could be selected. |
+| `EDITOR_MODEL_UNAVAILABLE` | The selected model is missing or disposed. |
+| `EDITOR_SNAPSHOT_INVALID` | The page reader returned invalid code or language data. |
+| `EDITOR_TOO_LARGE` | The code exceeds the one-MiB limit. |
+| `EDITOR_READ_FAILED` | An editor API call failed; its raw error is not displayed. |
+| `EDITOR_INJECTION_FAILED` | Chrome could not execute the reader in the page. |
+| `EDITOR_READ_TIMEOUT` | The page read exceeded five seconds. |
+| `EDITOR_MESSAGE_FAILED` | The page script could not communicate with the worker. |
+| `EDITOR_RESPONSE_INVALID` | The worker response was missing, malformed, or carried an unrecognized code. |
+
+Other fixed codes, such as `PAGE_CHANGED`, `SETTINGS_CHANGED`, `STORAGE_UNAVAILABLE`, or `UNAUTHORIZED`, identify route, settings, storage, or sender checks instead. A code narrows the failing stage; it does not establish the underlying browser cause on its own.
+
+When NeetCode does not expose Monaco globally, the reader inspects its already-loaded Webpack modules for a supported editor API. It uses export capabilities rather than build-specific module numbers, with bounded discovery and ambiguity checks. Future NeetCode changes may require an extension update; unsupported integrations stop the save safely. This discovery does not download scripts or receive credentials.
 
 ### Upgrading from a configuration-file version
 

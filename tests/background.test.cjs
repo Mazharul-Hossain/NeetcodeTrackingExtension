@@ -11,6 +11,8 @@ const { configure } = require('./helpers/worker-harness.cjs');
 function capture(fixture, tabId, title, code, language = 'Python') {
     fixture.chrome.webRequest.onBeforeRequest.fire({
         tabId,
+        frameId: 0,
+        documentId: 'synthetic-problem-document',
         url: 'https://neetcode.io/api/executeCodeFunctionHttp',
         requestBody: {
             raw: [
@@ -24,11 +26,26 @@ function capture(fixture, tabId, title, code, language = 'Python') {
     });
 }
 
-function beginSync(fixture, tabId, requestId = `sync-${tabId}`) {
+function beginSync(fixture, tabId, requestId = `sync-${tabId}`, functionId = 'commitToGitHub') {
+    const pending = fixture.evaluate(`pendingCodeByTab[${tabId}]`);
     fixture.chrome.webRequest.onBeforeRequest.fire({
         tabId,
         requestId,
+        frameId: 0,
+        documentId: 'synthetic-problem-document',
         url: 'https://neetcode.io/api/githubFunctionHttp',
+        method: 'POST',
+        requestBody: {
+            raw: [
+                {
+                    bytes: new TextEncoder().encode(
+                        JSON.stringify({
+                            data: { functionId, problemId: pending?.title, code: pending?.code },
+                        }),
+                    ).buffer,
+                },
+            ],
+        },
     });
     return requestId;
 }
@@ -37,6 +54,8 @@ function completeSync(fixture, tabId, requestId, statusCode = 200) {
     return fixture.chrome.webRequest.onCompleted.fire({
         tabId,
         requestId,
+        frameId: 0,
+        documentId: 'synthetic-problem-document',
         url: 'https://neetcode.io/api/githubFunctionHttp',
         statusCode,
     });
@@ -45,6 +64,326 @@ function completeSync(fixture, tabId, requestId, statusCode = 200) {
 function release(fixture, tabId, statusCode = 200) {
     return completeSync(fixture, tabId, beginSync(fixture, tabId), statusCode);
 }
+
+test('a same-document loading signal cannot invalidate a pending tab URL lookup', async () => {
+    const f = backgroundFixture();
+    await configure(f);
+    let resolveTab;
+    const pageUrl = 'https://neetcode.io/problems/two-sum/question';
+    f.chrome.tabs.get = () =>
+        new Promise(resolve => {
+            resolveTab = resolve;
+        });
+    capture(f, 7, 'two-sum', 'synthetic submission');
+    const captureUrl = f.evaluate('pendingCodeByTab[7].pageUrl');
+    f.chrome.tabs.onUpdated.fire(7, { status: 'loading' });
+    resolveTab({ id: 7, url: pageUrl });
+    await captureUrl;
+    await release(f, 7);
+    assert.equal(f.sent.find(args => args[1].type === 'CODE_DATA')?.[1].pageUrl, pageUrl);
+});
+
+test('a delayed initial lookup preserves one provable same-problem transition', async () => {
+    for (const associateFirst of [false, true]) {
+        for (const lookupUrl of [
+            'https://neetcode.io/problems/plus-one/history?submissionIndex=2',
+            'https://neetcode.io/problems/plus-one/history?submissionIndex=3',
+            'https://neetcode.io/problems/other-problem/history?submissionIndex=2',
+        ]) {
+            const f = backgroundFixture();
+            await configure(f);
+            let resolveTab;
+            f.chrome.tabs.get = () =>
+                new Promise(resolve => {
+                    resolveTab = resolve;
+                });
+            capture(f, 7, 'backend-plus-one', 'synthetic submission');
+            const pending = f.evaluate('pendingCodeByTab[7]');
+            if (associateFirst) beginSync(f, 7);
+            const destination = 'https://neetcode.io/problems/plus-one/history?submissionIndex=3';
+            f.chrome.tabs.onUpdated.fire(7, { url: destination });
+            resolveTab({ id: 7, url: lookupUrl });
+            await pending.pageUrl;
+            if (!associateFirst) beginSync(f, 7);
+            await completeSync(f, 7, 'sync-7');
+            const saved = f.sent.find(args => args[1].type === 'CODE_DATA')?.[1];
+            assert.equal(!!saved, lookupUrl.endsWith('plus-one/history?submissionIndex=2'));
+            if (saved) assert.equal(saved.pageUrl, destination);
+        }
+    }
+});
+
+test('a real document navigation rejects an unresolved initial lookup', async () => {
+    for (const associateFirst of [false, true]) {
+        const f = backgroundFixture();
+        await configure(f);
+        let resolveTab;
+        const url = 'https://neetcode.io/problems/two-sum/question';
+        f.chrome.tabs.get = () =>
+            new Promise(resolve => {
+                resolveTab = resolve;
+            });
+        capture(f, 7, 'two-sum', 'synthetic submission');
+        const pending = f.evaluate('pendingCodeByTab[7]');
+        if (associateFirst) beginSync(f, 7);
+        f.chrome.webRequest.onBeforeRequest.fire({ tabId: 7, frameId: 0, type: 'main_frame', url });
+        resolveTab({ id: 7, url });
+        await pending.pageUrl;
+        if (!associateFirst) beginSync(f, 7);
+        await completeSync(f, 7, 'sync-7');
+        assert.equal(
+            f.sent.some(args => args[1].type === 'CODE_DATA'),
+            false,
+        );
+    }
+});
+
+test('multiple unresolved URL transitions remain ambiguous and cannot save', async () => {
+    const f = backgroundFixture();
+    await configure(f);
+    let resolveTab;
+    f.chrome.tabs.get = () =>
+        new Promise(resolve => {
+            resolveTab = resolve;
+        });
+    capture(f, 7, 'backend-plus-one', 'synthetic submission');
+    const pending = f.evaluate('pendingCodeByTab[7]');
+    for (const index of [3, 4]) {
+        f.chrome.tabs.onUpdated.fire(7, {
+            url: `https://neetcode.io/problems/plus-one/history?submissionIndex=${index}`,
+        });
+    }
+    resolveTab({ id: 7, url: 'https://neetcode.io/problems/plus-one/history?submissionIndex=2' });
+    await pending.pageUrl;
+    await release(f, 7);
+    assert.equal(
+        f.sent.some(args => args[1].type === 'CODE_DATA'),
+        false,
+    );
+});
+
+test('automatic capture survives the observed submission results URL transition', async () => {
+    for (const beforeSync of [true, false]) {
+        const f = backgroundFixture();
+        await configure(f);
+        let pageUrl = 'https://neetcode.io/problems/plus-one/history?submissionIndex=2';
+        f.chrome.tabs.get = async id => ({ id, url: pageUrl });
+        capture(f, 7, 'backend-plus-one', 'synthetic submitted code');
+        await f.evaluate('pendingCodeByTab[7].pageUrl');
+        f.chrome.tabs.onUpdated.fire(7, { status: 'loading' });
+        if (!beforeSync) beginSync(f, 7);
+        pageUrl = 'https://neetcode.io/problems/plus-one/history?submissionIndex=3';
+        f.chrome.tabs.onUpdated.fire(7, { url: pageUrl });
+        if (beforeSync) beginSync(f, 7);
+        await completeSync(f, 7, 'sync-7');
+        const saved = f.sent.find(args => args[1].type === 'CODE_DATA')?.[1];
+        assert.equal(saved?.code, 'synthetic submitted code');
+        assert.equal(saved.pageUrl, pageUrl);
+    }
+});
+
+test('question-to-history navigation preserves only the matching submitted-code commit', async () => {
+    const f = backgroundFixture();
+    await configure(f);
+    let pageUrl = 'https://neetcode.io/problems/plus-one/question?list=practice';
+    f.chrome.tabs.get = async id => ({ id, url: pageUrl });
+    capture(f, 7, 'backend-plus-one', 'synthetic submission');
+    await f.evaluate('pendingCodeByTab[7].pageUrl');
+    pageUrl = 'https://neetcode.io/problems/plus-one/history?list=practice&submissionIndex=3';
+    f.chrome.tabs.onUpdated.fire(7, { url: pageUrl });
+    for (const data of [
+        { problemId: 'other-problem', code: 'synthetic submission' },
+        { problemId: 'backend-plus-one', code: 'other submission' },
+    ]) {
+        f.chrome.webRequest.onBeforeRequest.fire({
+            tabId: 7,
+            frameId: 0,
+            documentId: 'synthetic-problem-document',
+            requestId: 'unrelated',
+            method: 'POST',
+            url: 'https://neetcode.io/api/githubFunctionHttp',
+            requestBody: {
+                raw: [
+                    {
+                        bytes: new TextEncoder().encode(
+                            JSON.stringify({ data: { functionId: 'commitToGitHub', ...data } }),
+                        ).buffer,
+                    },
+                ],
+            },
+        });
+        await completeSync(f, 7, 'unrelated');
+        assert.equal(f.sent.length, 0);
+    }
+    await release(f, 7);
+    assert.equal(f.sent.at(-1)[1].pageUrl, pageUrl);
+});
+
+test('leaving a problem and returning cannot revive its capture', async () => {
+    const f = backgroundFixture();
+    await configure(f);
+    const pageUrl = 'https://neetcode.io/problems/plus-one/question';
+    f.chrome.tabs.get = async id => ({ id, url: pageUrl });
+    capture(f, 7, 'backend-plus-one', 'synthetic code');
+    await f.evaluate('pendingCodeByTab[7].pageUrl');
+    f.chrome.tabs.onUpdated.fire(7, { url: 'https://neetcode.io/problems/two-sum/question' });
+    f.chrome.tabs.onUpdated.fire(7, { url: pageUrl });
+    await release(f, 7);
+    assert.equal(
+        f.sent.some(args => args[1].type === 'CODE_DATA'),
+        false,
+    );
+});
+
+test('rejected route bindings release the stored solution from pending memory', async () => {
+    const f = backgroundFixture();
+    await configure(f);
+    capture(f, 7, 'two-sum', 'synthetic submission');
+    const pending = f.evaluate('pendingCodeByTab[7]');
+    await pending.pageUrl;
+    f.chrome.tabs.onUpdated.fire(7, { url: 'https://neetcode.io/problems/other-problem/question' });
+    await pending.pageUrl;
+    assert.equal(f.evaluate('pendingCodeByTab[7]'), undefined);
+});
+
+test('cancelled route cleanup cannot discard a newer problem submission', async () => {
+    const f = backgroundFixture();
+    await configure(f);
+    capture(f, 7, 'two-sum', 'older synthetic submission');
+    const oldCapture = f.evaluate('pendingCodeByTab[7]');
+    await oldCapture.pageUrl;
+    const nextUrl = 'https://neetcode.io/problems/other-problem/question';
+    f.chrome.tabs.onUpdated.fire(7, { url: nextUrl });
+    f.chrome.tabs.get = async id => ({ id, url: nextUrl });
+    capture(f, 7, 'other-problem', 'newer synthetic submission');
+    await oldCapture.pageUrl;
+    await release(f, 7);
+    const saved = f.sent.find(args => args[1].type === 'CODE_DATA')?.[1];
+    assert.equal(saved?.code, 'newer synthetic submission');
+    assert.equal(saved.pageUrl, nextUrl);
+});
+
+test('automatic submission rebinding rejects other problems, query changes and document loads', async () => {
+    const oldUrl = 'https://neetcode.io/problems/plus-one/question?list=practice';
+    for (const change of [
+        { url: 'https://neetcode.io/problems/two-sum/history?list=practice&submissionIndex=3' },
+        { url: 'https://neetcode.io/problems/plus-one/history?list=other&submissionIndex=3' },
+        { url: 'https://neetcode.io/problems/plus-one/history?list=practice&submissionIndex=bad' },
+        { url: 'https://neetcode.io/problems/plus-one/discuss?list=practice' },
+    ]) {
+        const f = backgroundFixture();
+        await configure(f);
+        f.chrome.tabs.get = async id => ({ id, url: oldUrl });
+        capture(f, 7, 'backend-plus-one', 'synthetic code');
+        await f.evaluate('pendingCodeByTab[7].pageUrl');
+        f.chrome.tabs.onUpdated.fire(7, change);
+        await release(f, 7);
+        assert.equal(
+            f.sent.some(args => args[1].type === 'CODE_DATA'),
+            false,
+        );
+    }
+});
+
+test('a real document navigation discards captures despite the same problem URL', async () => {
+    const f = backgroundFixture();
+    await configure(f);
+    capture(f, 7, 'two-sum', 'synthetic submission');
+    f.chrome.webRequest.onBeforeRequest.fire({
+        tabId: 7,
+        frameId: 0,
+        type: 'main_frame',
+        url: 'https://neetcode.io/problems/two-sum',
+    });
+    await release(f, 7);
+    assert.equal(
+        f.sent.some(args => args[1].type === 'CODE_DATA'),
+        false,
+    );
+});
+
+test('automatic commit and upload ticket cannot cross document boundaries', async () => {
+    const { problemSender, payload } = require('./helpers/worker-harness.cjs');
+    const f = backgroundFixture();
+    await configure(f);
+    capture(f, 7, 'two-sum', 'synthetic submission');
+    f.chrome.webRequest.onBeforeRequest.fire({
+        tabId: 7,
+        frameId: 0,
+        documentId: 'replacement-document',
+        requestId: 'wrong-document',
+        method: 'POST',
+        url: 'https://neetcode.io/api/githubFunctionHttp',
+        requestBody: {
+            raw: [
+                {
+                    bytes: new TextEncoder().encode(
+                        JSON.stringify({
+                            data: {
+                                functionId: 'commitToGitHub',
+                                problemId: 'two-sum',
+                                code: 'synthetic submission',
+                            },
+                        }),
+                    ).buffer,
+                },
+            ],
+        },
+    });
+    await completeSync(f, 7, 'wrong-document');
+    assert.equal(f.sent.length, 0);
+    await release(f, 7);
+    const saved = f.sent.at(-1)[1];
+    const result = await f.request(
+        { type: 'UPLOAD_PROBLEM', uploadTicket: saved.uploadTicket, payload },
+        { ...problemSender, documentId: 'replacement-document' },
+    );
+    assert.equal(result.error.code, 'PAGE_CHANGED');
+    assert.equal(f.calls.length, 0);
+});
+
+test('GitHub status and settings requests cannot consume a submission or trigger a save', async () => {
+    const f = backgroundFixture();
+    await configure(f);
+    capture(f, 7, 'two-sum', 'synthetic submission');
+    for (const operation of [
+        'getGitHubStatus',
+        'getSyncStatus',
+        'updateGitHubPreferences',
+        'syncSubmission',
+    ]) {
+        const requestId = beginSync(f, 7, operation, operation);
+        await completeSync(f, 7, requestId);
+        assert.equal(f.sent.length, 0, operation);
+    }
+    await release(f, 7);
+    assert.equal(f.sent.filter(args => args[1].type === 'CODE_DATA').length, 1);
+});
+
+test('unreadable and non-POST GitHub requests leave the submission for its actual commit', async () => {
+    const f = backgroundFixture();
+    await configure(f);
+    capture(f, 7, 'two-sum', 'synthetic submission');
+    for (const extra of [
+        { method: 'OPTIONS' },
+        { method: 'GET' },
+        { method: 'POST' },
+        { method: 'POST', requestBody: { raw: [{ bytes: new TextEncoder().encode('{').buffer }] } },
+        { method: 'POST', requestBody: { raw: [{ file: 'unreadable' }] } },
+        { method: 'POST', requestBody: { raw: [{ bytes: new Uint8Array(2097153).buffer }] } },
+    ]) {
+        f.chrome.webRequest.onBeforeRequest.fire({
+            tabId: 7,
+            requestId: 'ignored',
+            url: 'https://neetcode.io/api/githubFunctionHttp',
+            ...extra,
+        });
+        await completeSync(f, 7, 'ignored');
+        assert.equal(f.sent.length, 0);
+    }
+    await release(f, 7);
+    assert.equal(f.sent.at(-1)[1].code, 'synthetic submission');
+});
 
 test('sync completion delivers its own captured submission rather than a later run', async () => {
     const f = backgroundFixture();
@@ -380,6 +719,8 @@ test('chunked request bodies preserve code even when UTF-8 characters span chunk
     );
     f.chrome.webRequest.onBeforeRequest.fire({
         tabId: 7,
+        frameId: 0,
+        documentId: 'synthetic-problem-document',
         url: 'https://neetcode.io/api/executeCodeFunctionHttp',
         requestBody: { raw: Array.from(bytes, byte => ({ bytes: new Uint8Array([byte]).buffer })) },
     });
@@ -393,6 +734,8 @@ test('malformed newer submissions cannot release an older capture', async () => 
     capture(f, 7, 'two-sum', 'old code');
     f.chrome.webRequest.onBeforeRequest.fire({
         tabId: 7,
+        frameId: 0,
+        documentId: 'synthetic-problem-document',
         url: 'https://neetcode.io/api/executeCodeFunctionHttp',
         requestBody: { raw: [{ file: 'not-readable' }] },
     });

@@ -382,6 +382,43 @@ test('failed complete-model capture stops manual saves without uploading partial
     assert.match(f.context.toasts.at(-1).message, /Could not read the complete editor code/);
 });
 
+test('manual editor failures show a fixed diagnostic code at the start of the toast', async () => {
+    for (const code of [
+        'EDITOR_API_UNAVAILABLE',
+        'EDITOR_AMBIGUOUS',
+        'EDITOR_READ_TIMEOUT',
+        'EDITOR_INJECTION_FAILED',
+        'PAGE_CHANGED',
+    ]) {
+        const f = fixture({ ok: false, error: { code, message: 'private worker details' } });
+        await f.context.saveManual({ pageUrl: f.context.location.href });
+        assert.ok(f.context.toasts.at(-1).message.startsWith(`[${code}] `));
+        assert.doesNotMatch(f.context.toasts.at(-1).message, /private worker details/);
+        assert.equal(
+            f.messages.some(message => message.type === 'UPLOAD_PROBLEM'),
+            false,
+        );
+    }
+});
+
+test('messaging failures and malformed editor responses have distinct safe codes', async () => {
+    const unavailable = fixture({ ok: true });
+    unavailable.context.chrome.runtime.sendMessage = async () => {
+        throw new Error('private browser details');
+    };
+    await unavailable.context.saveManual({ pageUrl: unavailable.context.location.href });
+    assert.match(unavailable.context.toasts.at(-1).message, /^\[EDITOR_MESSAGE_FAILED\]/);
+    for (const response of [
+        { ok: true },
+        { ok: false, error: { code: 'private-code', message: 'private details' } },
+    ]) {
+        const f = fixture(response);
+        await f.context.saveManual({ pageUrl: f.context.location.href });
+        assert.match(f.context.toasts.at(-1).message, /^\[EDITOR_RESPONSE_INVALID\]/);
+        assert.doesNotMatch(f.context.toasts.at(-1).message, /private/);
+    }
+});
+
 test('navigation while awaiting the editor prevents a manual upload', async () => {
     const f = fixture({ ok: true });
     f.context.chrome.runtime.sendMessage = async () => {
